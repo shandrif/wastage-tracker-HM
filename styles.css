@@ -1,22 +1,18 @@
-:root{
-  --bg:#f5f6f8;--card:#fff;--ink:#1c2230;--muted:#6b7385;--line:#e3e6ec;--accent:#2f5bd8;
-  --high:#d64545;--high-bg:#fde8e8;--ok:#2e9e6b;--ok-bg:#e3f5ec;--low:#c98a0b;--low-bg:#fdf3dc;
-}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  --bg:#12151c;--card:#1b202b;--ink:#e8ebf2;--muted:#8f98ac;--line:#2a3140;--accent:#6c8cff;
-  --high:#ff7a7a;--high-bg:#3a1f22;--ok:#4cc790;--ok-bg:#16332a;--low:#f0b64a;--low-bg:#382d14;;color-scheme:dark}}
-:root[data-theme="dark"]{
-  --bg:#12151c;--card:#1b202b;--ink:#e8ebf2;--muted:#8f98ac;--line:#2a3140;--accent:#6c8cff;
-  --high:#ff7a7a;--high-bg:#3a1f22;--ok:#4cc790;--ok-bg:#16332a;--low:#f0b64a;--low-bg:#382d14;;color-scheme:dark}
+:root{--bg:#f5ede1;--card:#fbf7ef;--ink:#141210;--muted:#6f6658;--line:#e3d6c2;--accent:#2f8f78;--accent-fill:#6cc4ae;--on-accent:#141210;--tan:#d4b48c;--mint:#86c4b0;--aqua:#a6ddd3;
+  --high:#b93a34;--high-bg:#f8dcd6;--ok:#2c7d4f;--ok-bg:#d9efe2;--low:#9a6a0c;--low-bg:#f6e6c4;}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1c1915;--card:#26221c;--ink:#f5ede1;--muted:#a19683;--line:#3a342a;--accent:#86c4b0;--accent-fill:#6cc4ae;--on-accent:#141210;--tan:#d4b48c;--mint:#86c4b0;--aqua:#a6ddd3;
+  --high:#ff8a80;--high-bg:#432322;--ok:#7fd3a3;--ok-bg:#1c3a2b;--low:#f0c36a;--low-bg:#3d3216;;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#1c1915;--card:#26221c;--ink:#f5ede1;--muted:#a19683;--line:#3a342a;--accent:#86c4b0;--accent-fill:#6cc4ae;--on-accent:#141210;--tan:#d4b48c;--mint:#86c4b0;--aqua:#a6ddd3;
+  --high:#ff8a80;--high-bg:#432322;--ok:#7fd3a3;--ok-bg:#1c3a2b;--low:#f0c36a;--low-bg:#3d3216;;color-scheme:dark}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
 .muted{color:var(--muted)}.small{font-size:12px}
-.top{display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:center;padding:14px 20px;background:var(--card);border-bottom:1px solid var(--line)}
-.brand h1{margin:0;font-size:20px}
+.top{border-left:14px solid var(--tan);display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:center;padding:14px 20px;background:var(--card);border-bottom:1px solid var(--line)}
+.brand h1{margin:0;font-size:24px;font-weight:800;font-family:Arial,Helvetica,sans-serif;letter-spacing:-.01em}
 .actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .btn{display:inline-block;padding:8px 12px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;cursor:pointer;font:inherit}
 .btn:hover{border-color:var(--accent)}
-.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary{background:var(--accent-fill);border-color:var(--accent-fill);color:var(--on-accent);font-weight:600}
 details.more{position:relative}details.more summary{list-style:none}
 .menu{position:absolute;right:0;top:110%;z-index:20;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:8px;min-width:230px;box-shadow:0 8px 24px rgba(0,0,0,.15)}
 .filters{display:flex;flex-wrap:wrap;gap:16px;align-items:end;padding:12px 20px}
@@ -26,7 +22,7 @@ details.more{position:relative}details.more summary{list-style:none}
 .notice{margin:0 20px 8px;padding:10px 14px;border-radius:8px;background:var(--low-bg);color:var(--ink);border:1px solid var(--low)}
 .tabs{display:flex;gap:4px;padding:0 20px;border-bottom:1px solid var(--line);overflow-x:auto}
 .tabs button{background:none;border:0;padding:10px 14px;font:inherit;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap}
-.tabs button.active{color:var(--ink);border-color:var(--accent);font-weight:600}
+.tabs button.active{color:var(--ink);border-color:var(--accent-fill);font-weight:700}
 main{padding:16px 20px 40px;max-width:1400px;margin:0 auto}
 .empty{text-align:center;padding:60px 20px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:16px}
