@@ -14,15 +14,17 @@
     <div><h1>Wastage Tracker</h1><span id="period" class="muted">No data loaded</span></div>
   </div>
   <div class="actions">
-    <button class="btn" id="btnTemplate" title="Blank waste + net sales template">↓ Download template</button>
-    <label class="btn primary">↑ Upload waste report<input type="file" id="fileWaste" accept=".xlsx,.xls,.csv" multiple hidden></label>
     <details class="more">
-      <summary class="btn">Area manager mapping ▾</summary>
+      <summary class="btn primary">Update data ▾</summary>
       <div class="menu">
+        <button class="btn" id="btnTemplate" title="Blank waste + net sales template">↓ Download template</button>
+        <label class="btn primary">↑ Upload waste report<input type="file" id="fileWaste" accept=".xlsx,.xls,.csv" multiple hidden></label>
+        <hr>
         <button class="btn" id="btnMapTemplate">↓ Mapping template</button>
         <label class="btn">↑ Upload mapping<input type="file" id="fileMap" accept=".xlsx,.xls,.csv" hidden></label>
         <button class="btn" id="btnMapReset">Reset to built-in mapping</button>
         <span class="muted small" id="mapInfo"></span>
+        <span class="muted small">Uploads are a private preview until you publish them with the passcode.</span>
       </div>
     </details>
   </div>
@@ -38,6 +40,12 @@
 </div></section>
 
 <div id="notice" class="notice wrap" hidden></div>
+<div id="publishBar" class="publish wrap" hidden>
+  <span><b>Preview only.</b> Others still see the previously published data.</span>
+  <input type="password" id="passcode" placeholder="Upload passcode" autocomplete="off">
+  <button class="btn primary" id="btnPublish">Publish for everyone</button>
+  <span id="pubMsg" class="small"></span>
+</div>
 
 <div class="tabbar wrap"><nav class="tabs" id="tabs">
   <button data-tab="overview" class="active">Overview</button>
@@ -49,10 +57,8 @@
 
 <main class="wrap">
   <div id="empty" class="empty">
-    <h2>Upload a waste report to begin</h2>
-    <p>Use <b>Upload waste report</b> with the weekly file (write-off records + a Net Sales sheet).
-    Not sure about the format? Click <b>Download template</b>.</p>
-    <p class="muted">Area manager assignments are already built in — replace them any time under “Area manager mapping”.</p>
+    <h2 id="emptyTitle">Loading latest data…</h2>
+    <p id="emptyText" class="muted">Fetching the published dashboard.</p>
   </div>
 
   <section id="tab-overview" class="tab" hidden>

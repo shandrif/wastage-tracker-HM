@@ -107,3 +107,7 @@ tr.click{cursor:pointer}
 [hidden]{display:none!important}
 @media(max-width:600px){.wrap{padding:0 16px}.brand h1{font-size:20px}.kpi .v{font-size:24px}.chart.tall{height:320px}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+
+.publish{display:flex;flex-wrap:wrap;gap:10px 12px;align-items:center;margin:10px auto 0;padding:12px 16px;border-radius:14px;background:color-mix(in srgb,var(--tan) 30%,var(--surface));max-width:1232px}
+.publish input{padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:500 14px var(--font);width:180px}
+.menu hr{border:0;border-top:1px solid var(--line);width:100%;margin:2px 0}

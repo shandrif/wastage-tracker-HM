@@ -14,9 +14,62 @@ const state = {
   sort: {}, charts: {}, tab: 'overview', files: []
 };
 
+// ---------- shared storage (Supabase) ----------
+const SUPA = { url: 'https://rudbxlurozmpcdnshbcg.supabase.co',
+  key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ1ZGJ4bHVyb3ptcGNkbnNoYmNnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA3MDgwNTcsImV4cCI6MjEwNjI4NDA1N30.jT8DlaCMArthWaTxuGMOKjI9ZFxFjx9Yex8DU45P2zg' };
+const sapi = (path, opts = {}) => fetch(SUPA.url + '/rest/v1/' + path, { ...opts, headers: { apikey: SUPA.key, Authorization: 'Bearer ' + SUPA.key, 'Content-Type': 'application/json', ...(opts.headers || {}) } });
+const b64 = buf => { let s = ''; const u = new Uint8Array(buf); for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
+const unb64 = t => Uint8Array.from(atob(t), c => c.charCodeAt(0));
+async function gz(str) { const s = new Blob([str]).stream().pipeThrough(new CompressionStream('gzip')); return new Response(s).arrayBuffer(); }
+async function gunz(bytes) { const s = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip')); return new Response(s).text(); }
+async function packData() {
+  const S = [], C = [], P = [], si = new Map(), ci = new Map(), pi = new Map();
+  const idx = (m, arr, k, v) => { if (!m.has(k)) { m.set(k, arr.length); arr.push(v); } return m.get(k); };
+  const rows = state.records.map(r => [idx(si, S, r.storage, r.storage), idx(ci, C, r.cat, r.cat), idx(pi, P, r.code + '|' + r.name + '|' + r.um, [r.code, r.name, r.um]), r.qty, r.value, r.day]);
+  const json = JSON.stringify({ v: 1, S, C, P, rows, sales: state.sales.map(s => [s.code, s.label, s.storage, s.sales]), mapping: state.mapCustom ? state.mapping : null });
+  return typeof CompressionStream === 'function' ? 'g1:' + b64(await gz(json)) : 'j1:' + json;
+}
+async function unpackData(text) {
+  const json = text.startsWith('g1:') ? await gunz(unb64(text.slice(3))) : text.slice(3);
+  const d = JSON.parse(json);
+  state.records = d.rows.map(r => { const p = d.P[r[2]]; return { code: p[0], name: p[1], um: p[2], storage: d.S[r[0]], cat: d.C[r[1]], qty: r[3], value: r[4], day: r[5] }; });
+  state.sales = d.sales.map(s => ({ code: s[0], label: s[1], storage: s[2], sales: s[3] }));
+  if (d.mapping) loadMapping(d.mapping, true, true);
+}
+async function loadShared() {
+  try {
+    const res = await sapi('dashboard_data?id=eq.1&select=payload,meta,updated_at');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const rows = await res.json();
+    if (!rows.length) { $('emptyTitle').textContent = 'No data published yet'; $('emptyText').textContent = 'Open “Update data” to upload the first waste report and publish it.'; return; }
+    await unpackData(rows[0].payload);
+    state.published = { at: rows[0].updated_at, meta: rows[0].meta || {} };
+    state.files = state.published.meta.files || [];
+    build(); render();
+  } catch (e) {
+    $('emptyTitle').textContent = 'Could not load the published data';
+    $('emptyText').textContent = 'Check your connection and reload. You can still upload a file from “Update data” to view it locally.';
+  }
+}
+function markDirty() { state.dirty = true; $('publishBar').hidden = false; $('pubMsg').textContent = ''; }
+async function publish() {
+  const pass = $('passcode').value, msg = $('pubMsg'), btn = $('btnPublish');
+  if (!pass) { msg.textContent = 'Enter the passcode.'; return; }
+  btn.disabled = true; msg.textContent = 'Publishing…';
+  try {
+    const days = state.records.map(r => r.day).filter(d => d != null);
+    const meta = { files: state.files, records: state.records.length, from: days.length ? dayISO(Math.min(...days)) : null, to: days.length ? dayISO(Math.max(...days)) : null };
+    const res = await sapi('rpc/save_dashboard', { method: 'POST', body: JSON.stringify({ p_passcode: pass, p_payload: await packData(), p_meta: meta }) });
+    if (!res.ok) { const t = await res.text(); throw new Error(/invalid passcode/i.test(t) ? 'Wrong passcode.' : 'Publish failed (' + res.status + ').'); }
+    state.published = { at: await res.json(), meta }; state.dirty = false; $('passcode').value = ''; $('publishBar').hidden = true;
+    notice(''); render();
+  } catch (e) { msg.textContent = e.message; }
+  btn.disabled = false;
+}
+
 // ---------- mapping ----------
-function loadMapping(rows, custom) {
-  state.mapping = rows; state.mapCustom = custom;
+function loadMapping(rows, custom, fromShared) {
+  state.mapping = rows; state.mapCustom = custom; state.mapShared = !!fromShared;
   $('mapInfo').textContent = `${custom ? 'Custom' : 'Built-in'} mapping: ${rows.length} rows, ${new Set(rows.map(r => r.am)).size} area managers`;
   const sel = $('amSelect'), cur = sel.value;
   sel.innerHTML = '<option value="">All area managers</option>' +
@@ -82,7 +135,8 @@ function parseSales(aoa) {
 }
 
 async function handleWasteFiles(files) {
-  const msgs = [];
+  const msgs = []; let changed = false;
+  state.files = [];
   for (const f of files) {
     try {
       const wb = await readWB(f);
@@ -95,13 +149,14 @@ async function handleWasteFiles(files) {
         if (sal && sal.length) { state.sales = sal; gotSales = true; }
       }
       if (!gotRec && !gotSales) msgs.push(`${f.name}: no waste records or Net Sales sheet recognised (download the template to see the expected columns).`);
-      else state.files.push(f.name);
+      else { state.files.push(f.name); changed = true; }
     } catch (e) { msgs.push(`${f.name}: ${e.message}`); }
   }
   if (!state.records.length) msgs.push('No waste records loaded yet.');
   else if (!state.sales.length) msgs.push('No Net Sales sheet found – waste % cannot be calculated. Add a "Net Sales" sheet (see template).');
   notice(msgs.join(' '));
   build(); render();
+  if (changed && state.records.length) markDirty();
 }
 
 // ---------- model ----------
@@ -199,7 +254,7 @@ function render() {
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === state.tab));
   if (!has) { $('period').textContent = 'No data loaded'; $('scopeInfo').textContent = ''; return; }
   const days = state.records.map(r => r.day).filter(d => d != null);
-  $('period').textContent = (days.length ? `${dayISO(Math.min(...days))} → ${dayISO(Math.max(...days))} · ` : '') + `${fmt(state.records.length)} write-off records`;
+  $('period').textContent = (days.length ? `${dayISO(Math.min(...days))} → ${dayISO(Math.max(...days))} · ` : '') + `${fmt(state.records.length)} write-off records` + (state.published && !state.dirty ? ` · updated ${new Date(state.published.at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}` : '');
   const sc = scope();
   const unm = state.stores.filter(s => s.waste > 0 && !s.mapped).length;
   $('scopeInfo').textContent = `${sc.st.length} store${sc.st.length === 1 ? '' : 's'} in view` + (state.am ? ` · ${state.am}` : '') +
@@ -357,7 +412,9 @@ function dlMapTemplate() {
 // ---------- wiring ----------
 $('btnTemplate').onclick = dlTemplate;
 $('btnMapTemplate').onclick = dlMapTemplate;
-$('btnMapReset').onclick = () => { try { localStorage.removeItem('wasteMapping'); } catch (e) {} loadMapping(window.DEFAULT_MAPPING, false); build(); render(); };
+$('btnMapReset').onclick = () => { try { localStorage.removeItem('wasteMapping'); } catch (e) {} loadMapping(window.DEFAULT_MAPPING, false); build(); render(); if (state.records.length) markDirty(); };
+$('btnPublish').onclick = publish;
+$('passcode').onkeydown = e => { if (e.key === 'Enter') publish(); };
 $('fileWaste').onchange = e => { handleWasteFiles([...e.target.files]); e.target.value = ''; };
 $('fileMap').onchange = async e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
@@ -365,8 +422,8 @@ $('fileMap').onchange = async e => {
     const wb = await readWB(f); let rows = [];
     for (const n of wb.SheetNames) { try { rows = parseMappingRows(toAOA(wb.Sheets[n])); if (rows.length) break; } catch (err) {} }
     if (!rows.length) throw new Error('No area manager rows found. Download the mapping template for the expected columns.');
-    loadMapping(rows, true); try { localStorage.setItem('wasteMapping', JSON.stringify(rows)); } catch (err) {}
-    notice(''); build(); render();
+    loadMapping(rows, true);
+    notice(''); build(); render(); if (state.records.length) markDirty();
   } catch (err) { notice('Mapping file: ' + err.message); }
 };
 $('amSelect').onchange = e => { state.am = e.target.value; render(); };
@@ -378,8 +435,8 @@ $('modalClose').onclick = () => $('modal').hidden = true;
 $('modal').onclick = e => { if (e.target === $('modal')) $('modal').hidden = true; };
 document.addEventListener('keydown', e => { if (e.key === 'Escape') $('modal').hidden = true; });
 
-let saved = null; try { saved = JSON.parse(localStorage.getItem('wasteMapping')); } catch (e) {}
-if (Array.isArray(saved) && saved.length) loadMapping(saved, true); else loadMapping(window.DEFAULT_MAPPING || [], false);
+loadMapping(window.DEFAULT_MAPPING || [], false);
 render();
+loadShared();
 window.__wasteApp = { state, handleWasteFiles };
 })();
