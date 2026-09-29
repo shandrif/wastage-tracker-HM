@@ -51,19 +51,26 @@ async function loadShared() {
     $('emptyText').textContent = 'Check your connection and reload. You can still upload a file from “Update data” to view it locally.';
   }
 }
-function markDirty() { state.dirty = true; $('publishBar').hidden = false; $('pubMsg').textContent = ''; }
-async function publish() {
-  const pass = $('passcode').value, msg = $('pubMsg'), btn = $('btnPublish');
+const savedPass = () => { try { return localStorage.getItem('hmPass') || ''; } catch (e) { return ''; } };
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 6000); }
+function markDirty() {
+  state.dirty = true; $('pubMsg').textContent = '';
+  if (savedPass()) publish(savedPass()); else $('publishBar').hidden = false;
+}
+window.addEventListener('beforeunload', e => { if (state.dirty) { e.preventDefault(); e.returnValue = ''; } });
+async function publish(auto) {
+  const pass = typeof auto === 'string' ? auto : $('passcode').value, msg = $('pubMsg'), btn = $('btnPublish');
   if (!pass) { msg.textContent = 'Enter the passcode.'; return; }
-  btn.disabled = true; msg.textContent = 'Publishing…';
+  btn.disabled = true; msg.textContent = 'Saving…'; if (typeof auto === 'string') toast('Saving to the shared dashboard…');
   try {
     const days = state.records.map(r => r.day).filter(d => d != null);
     const meta = { files: state.files, records: state.records.length, from: days.length ? dayISO(Math.min(...days)) : null, to: days.length ? dayISO(Math.max(...days)) : null };
     const res = await sapi('rpc/save_dashboard', { method: 'POST', body: JSON.stringify({ p_passcode: pass, p_payload: await packData(), p_meta: meta }) });
-    if (!res.ok) { const t = await res.text(); throw new Error(/invalid passcode/i.test(t) ? 'Wrong passcode.' : 'Publish failed (' + res.status + ').'); }
+    if (!res.ok) { const t = await res.text(); if (/invalid passcode/i.test(t)) { try { localStorage.removeItem('hmPass'); } catch (e) {} $('publishBar').hidden = false; throw new Error('Wrong passcode.'); } throw new Error('Not saved (error ' + res.status + '). Try again.'); }
     state.published = { at: await res.json(), meta }; state.dirty = false; $('passcode').value = ''; $('publishBar').hidden = true;
-    notice(''); render();
-  } catch (e) { msg.textContent = e.message; }
+    try { localStorage.setItem('hmPass', pass); } catch (e) {}
+    notice(''); render(); toast('✓ Saved. Everyone opening the link now sees this data, replacing the previous upload.');
+  } catch (e) { $('publishBar').hidden = false; msg.textContent = e.message; toast('Not saved yet. ' + e.message); }
   btn.disabled = false;
 }
 
@@ -413,7 +420,7 @@ function dlMapTemplate() {
 $('btnTemplate').onclick = dlTemplate;
 $('btnMapTemplate').onclick = dlMapTemplate;
 $('btnMapReset').onclick = () => { try { localStorage.removeItem('wasteMapping'); } catch (e) {} loadMapping(window.DEFAULT_MAPPING, false); build(); render(); if (state.records.length) markDirty(); };
-$('btnPublish').onclick = publish;
+$('btnPublish').onclick = () => publish();
 $('passcode').onkeydown = e => { if (e.key === 'Enter') publish(); };
 $('fileWaste').onchange = e => { handleWasteFiles([...e.target.files]); e.target.value = ''; };
 $('fileMap').onchange = async e => {
