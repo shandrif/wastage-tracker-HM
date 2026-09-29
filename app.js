@@ -36,20 +36,30 @@ async function unpackData(text) {
   state.sales = d.sales.map(s => ({ code: s[0], label: s[1], storage: s[2], sales: s[3] }));
   if (d.mapping) loadMapping(d.mapping, true, true);
 }
-async function loadShared() {
+async function fetchDashboard(pw) {
+  const res = await sapi('rpc/get_dashboard', { method: 'POST', body: JSON.stringify({ p_password: pw }) });
+  if (res.ok) return res.json();
+  if (/invalid password/i.test(await res.text())) return null;
+  throw new Error('HTTP ' + res.status);
+}
+function lock(msg) { document.body.classList.add('locked'); $('gate').hidden = false; $('gateMsg').textContent = msg || ''; $('gatePw').focus(); }
+async function loadShared(pw, fromGate) {
+  if (!pw) { lock(''); return; }
+  $('gateBtn').disabled = true;
+  let d;
+  try { d = await fetchDashboard(pw); }
+  catch (e) { $('gateBtn').disabled = false; lock('Could not reach the server. Check your connection and try again.'); return; }
+  $('gateBtn').disabled = false;
+  if (!d) { try { localStorage.removeItem('hmView'); } catch (e) {} lock(fromGate ? 'Wrong password. Try again.' : 'Please enter the password.'); return; }
+  try { localStorage.setItem('hmView', pw); if (d.admin) localStorage.setItem('hmPass', pw); } catch (e) {}
+  document.body.classList.remove('locked'); $('gate').hidden = true; $('gatePw').value = '';
+  if (d.empty) { $('emptyTitle').textContent = 'No data published yet'; $('emptyText').textContent = 'Open “Update data” to upload the first waste report and publish it.'; return; }
   try {
-    const res = await sapi('dashboard_data?id=eq.1&select=payload,meta,updated_at');
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const rows = await res.json();
-    if (!rows.length) { $('emptyTitle').textContent = 'No data published yet'; $('emptyText').textContent = 'Open “Update data” to upload the first waste report and publish it.'; return; }
-    await unpackData(rows[0].payload);
-    state.published = { at: rows[0].updated_at, meta: rows[0].meta || {} };
+    await unpackData(d.payload);
+    state.published = { at: d.updated_at, meta: d.meta || {} };
     state.files = state.published.meta.files || [];
     build(); render();
-  } catch (e) {
-    $('emptyTitle').textContent = 'Could not load the published data';
-    $('emptyText').textContent = 'Check your connection and reload. You can still upload a file from “Update data” to view it locally.';
-  }
+  } catch (e) { $('emptyTitle').textContent = 'Could not read the published data'; $('emptyText').textContent = 'Reload the page. If it persists, publish the report again.'; }
 }
 const savedPass = () => { try { return localStorage.getItem('hmPass') || ''; } catch (e) { return ''; } };
 function toast(msg) { const t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 6000); }
@@ -444,6 +454,9 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') $('modal').h
 
 loadMapping(window.DEFAULT_MAPPING || [], false);
 render();
-loadShared();
+let savedView = ''; try { savedView = localStorage.getItem('hmView') || localStorage.getItem('hmPass') || ''; } catch (e) {}
+$('gateBtn').onclick = () => loadShared($('gatePw').value.trim(), true);
+$('gatePw').onkeydown = e => { if (e.key === 'Enter') loadShared($('gatePw').value.trim(), true); };
+loadShared(savedView);
 window.__wasteApp = { state, handleWasteFiles };
 })();

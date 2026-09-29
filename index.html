@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
 <link rel="stylesheet" href="styles.css">
 </head>
-<body>
+<body class="locked">
 <header class="top"><div class="wrap">
   <div class="brand">
     <div class="mark" aria-hidden="true">½M</div>
@@ -39,6 +39,16 @@
   <span id="scopeInfo" class="muted small"></span>
 </div></section>
 
+<section id="gate" class="gate wrap" hidden>
+  <div class="card gate-card">
+    <div class="mark" aria-hidden="true">½M</div>
+    <h2>Enter the dashboard password</h2>
+    <p class="muted">Ask the team for the password. It is remembered on this device.</p>
+    <input type="password" id="gatePw" placeholder="Password" autocomplete="current-password">
+    <button class="btn primary" id="gateBtn">Open dashboard</button>
+    <div id="gateMsg" class="small gate-msg" role="alert"></div>
+  </div>
+</section>
 <div id="notice" class="notice wrap" hidden></div>
 <div id="publishBar" class="publish wrap" hidden>
   <span><b>Not saved yet.</b> Enter the passcode once to save this upload for everyone (it is remembered on this device).</span>

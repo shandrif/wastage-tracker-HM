@@ -113,3 +113,10 @@ tr.click{cursor:pointer}
 .menu hr{border:0;border-top:1px solid var(--line);width:100%;margin:2px 0}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:60;background:var(--ink);color:var(--bg);padding:12px 18px;border-radius:99px;font-weight:600;box-shadow:var(--shadow);max-width:calc(100vw - 32px)}
 .publish{border:1px solid var(--tan)}
+body.locked .actions,body.locked .filters,body.locked .tabbar,body.locked main,body.locked .publish,body.locked .notice,body.locked #period{display:none!important}
+.gate{padding-top:56px;padding-bottom:56px}
+.gate-card{max-width:400px;margin:0 auto;text-align:center;display:flex;flex-direction:column;align-items:center;gap:12px;padding:32px 28px}
+.gate-card h2{margin:4px 0 0;font-size:20px;letter-spacing:-.01em}.gate-card p{margin:0}
+.gate-card input{width:100%;padding:11px 14px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--ink);font:500 15px var(--font);text-align:center}
+.gate-card .btn{width:100%;justify-content:center;padding:11px 16px}
+.gate-msg{color:var(--high);min-height:18px;font-weight:600}
