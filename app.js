@@ -317,6 +317,12 @@ function productModal(p, sc) {
 }
 
 // ---------- templates ----------
+async function saveWB(wb, name) {
+  const dl = window.claude ? await window.claude.use('downloads').catch(() => null) : null;
+  if (!dl) return XLSX.writeFile(wb, name);
+  try { await dl.save({ filename: name, data: XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) }); }
+  catch (e) { if (e && e.code !== 'declined') notice('Download unavailable here: ' + (e.message || e.code)); }
+}
 function dlTemplate() {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
@@ -329,14 +335,14 @@ function dlTemplate() {
     ['B33 MKK, Awali', 'Saco Makkah Main Storage', 150275.88],
     ['B08 RIY, Mohammadiyyah', 'Mohammadia Main Storage', 169610.56]
   ]), 'Net Sales');
-  XLSX.writeFile(wb, 'Waste_Report_Template.xlsx');
+  saveWB(wb, 'Waste_Report_Template.xlsx');
 }
 function dlMapTemplate() {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
     ['Sq No.', 'Code', 'Branch', 'Area Manager', 'ROM', 'Reigon', 'City'],
     [1, 'B26', 'BURAYDAH', 'MESHAL ALSULMI', 'MOHAMMAD MEHREZ', 'North', 'Buraydah']]), 'Mapping');
-  XLSX.writeFile(wb, 'AM_ROM_Mapping_Template.xlsx');
+  saveWB(wb, 'AM_ROM_Mapping_Template.xlsx');
 }
 
 // ---------- wiring ----------
