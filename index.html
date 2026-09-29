@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Waste Analytics Dashboard</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <h1>Waste Analytics</h1>
+    <span id="period" class="muted">No data loaded</span>
+  </div>
+  <div class="actions">
+    <button class="btn" id="btnTemplate" title="Blank waste + net sales template">⬇ Download template</button>
+    <label class="btn primary">⬆ Upload waste report<input type="file" id="fileWaste" accept=".xlsx,.xls,.csv" multiple hidden></label>
+    <details class="more">
+      <summary class="btn">Area manager mapping ▾</summary>
+      <div class="menu">
+        <button class="btn" id="btnMapTemplate">⬇ Mapping template</button>
+        <label class="btn">⬆ Upload mapping<input type="file" id="fileMap" accept=".xlsx,.xls,.csv" hidden></label>
+        <button class="btn" id="btnMapReset">Reset to built-in mapping</button>
+        <span class="muted small" id="mapInfo"></span>
+      </div>
+    </details>
+  </div>
+</header>
+
+<section class="filters">
+  <label>Area manager
+    <select id="amSelect"><option value="">All area managers</option></select>
+  </label>
+  <label>High waste &gt; <input type="number" id="thHigh" value="1.4" step="0.1" min="0"> %</label>
+  <label>Unusually low &lt; <input type="number" id="thLow" value="1.0" step="0.1" min="0"> %</label>
+  <span id="scopeInfo" class="muted small"></span>
+</section>
+
+<div id="notice" class="notice" hidden></div>
+
+<nav class="tabs" id="tabs">
+  <button data-tab="overview" class="active">Overview</button>
+  <button data-tab="stores">Stores</button>
+  <button data-tab="products">Products</button>
+  <button data-tab="extremes">Highest &amp; Lowest</button>
+  <button data-tab="managers">Area managers</button>
+</nav>
+
+<main>
+  <div id="empty" class="empty">
+    <h2>Upload a waste report to begin</h2>
+    <p>Use <b>Upload waste report</b> with the weekly file (write-off records + a Net Sales sheet).
+    Not sure about the format? Click <b>Download template</b>.</p>
+    <p class="muted">Area manager assignments are already built in — replace them any time under “Area manager mapping”.</p>
+  </div>
+
+  <section id="tab-overview" class="tab" hidden>
+    <div class="kpis" id="kpis"></div>
+    <div class="grid2">
+      <div class="card"><h3>Waste % by category (of net sales)</h3><canvas id="chCat" height="220"></canvas></div>
+      <div class="card"><h3>Daily wastage value</h3><canvas id="chDay" height="220"></canvas></div>
+    </div>
+    <div class="card"><h3>Waste % by store vs thresholds</h3><div class="chartwrap"><div id="chInner" style="height:300px"><canvas id="chStores"></canvas></div></div></div>
+    <div class="card"><h3>Top 10 wasted products (value)</h3><canvas id="chProd" height="240"></canvas></div>
+  </section>
+
+  <section id="tab-stores" class="tab" hidden>
+    <div class="toolbar"><input type="search" id="storeSearch" placeholder="Search store…">
+      <select id="storeStatus"><option value="">All statuses</option><option value="high">High</option><option value="ok">Normal</option><option value="low">Unusually low</option></select></div>
+    <div class="card tablewrap"><table id="tblStores"></table></div>
+  </section>
+
+  <section id="tab-products" class="tab" hidden>
+    <div class="toolbar"><input type="search" id="prodSearch" placeholder="Search product or code…">
+      <select id="prodCat"></select></div>
+    <div class="card tablewrap"><table id="tblProducts"></table></div>
+  </section>
+
+  <section id="tab-extremes" class="tab" hidden><div id="extremes"></div></section>
+
+  <section id="tab-managers" class="tab" hidden>
+    <div class="card tablewrap"><table id="tblManagers"></table></div>
+  </section>
+</main>
+
+<div id="modal" class="modal" hidden><div class="modal-box"><button class="close" id="modalClose">✕</button><div id="modalBody"></div></div></div>
+
+<script src="vendor/xlsx.full.min.js"></script>
+<script src="vendor/chart.umd.js"></script>
+<script src="data/default-mapping.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
