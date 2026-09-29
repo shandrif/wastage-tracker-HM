@@ -182,9 +182,9 @@ function table(el, cols, rows, key, onRow) {
   if (onRow) el.querySelectorAll('tbody tr').forEach(tr => tr.onclick = () => onRow(data[+tr.dataset.i]));
 }
 const pcell = f => { const s = statusOf(f); return `<span class="${s === 'high' ? 't-high' : s === 'low' ? 't-low' : ''}">${pct(f)}</span>`; };
-const COLORS = { high: '#c8453f', ok: '#6cc4ae', low: '#d4a24a', na: '#b9ae9c' };
-const PAL = ['#86c4b0', '#d4b48c', '#a6ddd3', '#2f8f78', '#8c7a5b', '#141210'];
-try { Chart.defaults.color = getComputedStyle(document.documentElement).getPropertyValue('--muted').trim() || '#6f6658'; Chart.defaults.borderColor = 'rgba(150,135,110,.25)'; } catch (e) {}
+const COLORS = { high: '#c8453f', ok: '#84c5b2', low: '#d4b38b', na: '#b9ae9c' };
+const PAL = ['#84c5b2', '#a7ded4', '#d4b38b', '#2b8a74', '#8c7a5b', '#000000'];
+try { Chart.defaults.color = getComputedStyle(document.documentElement).getPropertyValue('--muted').trim() || '#595959'; Chart.defaults.borderColor = '#d9d9d9'; } catch (e) {}
 
 function notice(msg) { const n = $('notice'); n.hidden = !msg; n.textContent = msg || ''; }
 
@@ -213,7 +213,7 @@ function overview(sc) {
     kp('Overall waste %', `<span class="${statusOf(sc.pct) === 'high' ? 't-high' : statusOf(sc.pct) === 'low' ? 't-low' : ''}">${pct(sc.pct)}</span>`, `${STATUS_LABEL[statusOf(sc.pct)]} (limit ${pct(state.high, 1)})`) +
     kp('High-waste stores', nHigh, `of ${withSales.length} with sales`) + kp('Unusually low', nLow, `below ${pct(state.low, 1)}`) +
     kp('Products wasted', fmt(sc.prods.length));
-  state.charts.cat = new Chart($('chCat'), { type: 'bar', data: { labels: sc.cats, datasets: [{ data: sc.cats.map(c => sc.sales ? +(sc.catTotals[c] / sc.sales * 100).toFixed(3) : 0), backgroundColor: [PAL[0], PAL[2], PAL[1], PAL[3]] }] },
+  state.charts.cat = new Chart($('chCat'), { type: 'bar', data: { labels: sc.cats, datasets: [{ data: sc.cats.map(c => sc.sales ? +(sc.catTotals[c] / sc.sales * 100).toFixed(3) : 0), backgroundColor: [PAL[0], PAL[1], PAL[2], PAL[3]] }] },
     options: { plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => `${c.parsed.y}% of net sales · ${fmt(sc.catTotals[c.label])}` } } }, scales: { y: { title: { display: true, text: '% of net sales' } } } } });
   const dd = [...sc.days.keys()].sort((a, b) => a - b);
   state.charts.day = new Chart($('chDay'), { type: 'bar', data: { labels: dd.map(dayISO), datasets: [{ data: dd.map(d => Math.round(sc.days.get(d))), backgroundColor: PAL[0] }] }, options: { plugins: { legend: { display: false } } } });
@@ -225,7 +225,7 @@ function overview(sc) {
     { type: 'line', label: `Low < ${pct(state.low, 1)}`, data: ss.map(() => state.low * 100), borderColor: COLORS.low, borderDash: [6, 4], pointRadius: 0, order: 1 }] },
     options: { maintainAspectRatio: false, plugins: { tooltip: { callbacks: { title: i => ss[i[0].dataIndex].name } } }, scales: { y: { title: { display: true, text: '% of net sales' } } } } });
   const tp = [...sc.prods].sort((a, b) => b.value - a.value).slice(0, 10);
-  state.charts.prod = new Chart($('chProd'), { type: 'bar', data: { labels: tp.map(p => p.name.slice(0, 40)), datasets: [{ data: tp.map(p => Math.round(p.value)), backgroundColor: PAL[1] }] }, options: { indexAxis: 'y', plugins: { legend: { display: false } } } });
+  state.charts.prod = new Chart($('chProd'), { type: 'bar', data: { labels: tp.map(p => p.name.slice(0, 40)), datasets: [{ data: tp.map(p => Math.round(p.value)), backgroundColor: PAL[0] }] }, options: { indexAxis: 'y', plugins: { legend: { display: false } } } });
 }
 
 function stores(sc) {
