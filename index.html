@@ -3,51 +3,51 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Waste Analytics Dashboard</title>
+<title>Wastage Tracker HM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<header class="top">
+<header class="top"><div class="wrap">
   <div class="brand">
-    <h1>Waste Analytics</h1>
-    <span id="period" class="muted">No data loaded</span>
+    <div class="mark" aria-hidden="true">½M</div>
+    <div><h1>Wastage Tracker</h1><span id="period" class="muted">No data loaded</span></div>
   </div>
   <div class="actions">
-    <span class="logo" aria-hidden="true">½M</span>
-    <button class="btn" id="btnTemplate" title="Blank waste + net sales template">⬇ Download template</button>
-    <label class="btn primary">⬆ Upload waste report<input type="file" id="fileWaste" accept=".xlsx,.xls,.csv" multiple hidden></label>
+    <button class="btn" id="btnTemplate" title="Blank waste + net sales template">↓ Download template</button>
+    <label class="btn primary">↑ Upload waste report<input type="file" id="fileWaste" accept=".xlsx,.xls,.csv" multiple hidden></label>
     <details class="more">
       <summary class="btn">Area manager mapping ▾</summary>
       <div class="menu">
-        <button class="btn" id="btnMapTemplate">⬇ Mapping template</button>
-        <label class="btn">⬆ Upload mapping<input type="file" id="fileMap" accept=".xlsx,.xls,.csv" hidden></label>
+        <button class="btn" id="btnMapTemplate">↓ Mapping template</button>
+        <label class="btn">↑ Upload mapping<input type="file" id="fileMap" accept=".xlsx,.xls,.csv" hidden></label>
         <button class="btn" id="btnMapReset">Reset to built-in mapping</button>
         <span class="muted small" id="mapInfo"></span>
       </div>
     </details>
   </div>
-</header>
+</div></header>
 
-<section class="filters">
+<section class="filters"><div class="wrap">
   <label>Area manager
     <select id="amSelect"><option value="">All area managers</option></select>
   </label>
   <label>High waste &gt; <input type="number" id="thHigh" value="1.4" step="0.1" min="0"> %</label>
   <label>Unusually low &lt; <input type="number" id="thLow" value="1.0" step="0.1" min="0"> %</label>
   <span id="scopeInfo" class="muted small"></span>
-</section>
+</div></section>
 
-<div id="notice" class="notice" hidden></div>
+<div id="notice" class="notice wrap" hidden></div>
 
-<nav class="tabs" id="tabs">
+<div class="tabbar wrap"><nav class="tabs" id="tabs">
   <button data-tab="overview" class="active">Overview</button>
   <button data-tab="stores">Stores</button>
   <button data-tab="products">Products</button>
   <button data-tab="extremes">Highest &amp; Lowest</button>
   <button data-tab="managers">Area managers</button>
-</nav>
+</nav></div>
 
-<main>
+<main class="wrap">
   <div id="empty" class="empty">
     <h2>Upload a waste report to begin</h2>
     <p>Use <b>Upload waste report</b> with the weekly file (write-off records + a Net Sales sheet).
@@ -57,12 +57,15 @@
 
   <section id="tab-overview" class="tab" hidden>
     <div class="kpis" id="kpis"></div>
-    <div class="grid2">
-      <div class="card"><h3>Waste % by category (of net sales)</h3><canvas id="chCat" height="220"></canvas></div>
-      <div class="card"><h3>Daily wastage value</h3><canvas id="chDay" height="220"></canvas></div>
+    <div class="grid g3">
+      <div class="card"><h3>Waste % by category <small>of net sales</small></h3><div class="chart"><canvas id="chCat"></canvas></div></div>
+      <div class="card"><h3>Stores by status</h3><div class="chart"><canvas id="chStatus"></canvas></div></div>
+      <div class="card"><h3>Daily wastage value</h3><div class="chart"><canvas id="chDay"></canvas></div></div>
     </div>
-    <div class="card"><h3>Waste % by store vs thresholds</h3><div class="chartwrap"><div id="chInner" style="height:300px"><canvas id="chStores"></canvas></div></div></div>
-    <div class="card"><h3>Top 10 wasted products (value)</h3><canvas id="chProd" height="240"></canvas></div>
+    <div class="grid g2">
+      <div class="card"><h3>Highest waste % stores <small>dashed lines mark the thresholds</small></h3><div class="chart tall"><canvas id="chStores"></canvas></div></div>
+      <div class="card"><h3>Most wasted products <small>value</small></h3><div class="chart tall"><canvas id="chProd"></canvas></div></div>
+    </div>
   </section>
 
   <section id="tab-stores" class="tab" hidden>

@@ -181,10 +181,12 @@ function table(el, cols, rows, key, onRow) {
   });
   if (onRow) el.querySelectorAll('tbody tr').forEach(tr => tr.onclick = () => onRow(data[+tr.dataset.i]));
 }
+const pbar = (f, max) => { const s = statusOf(f); return f == null ? '–' : `<div class="pb ${s}"><span class="${s === 'high' ? 't-high' : s === 'low' ? 't-low' : ''}">${pct(f)}</span><i><b style="width:${Math.min(100, f / (max || 1) * 100).toFixed(0)}%"></b></i></div>`; };
 const pcell = f => { const s = statusOf(f); return `<span class="${s === 'high' ? 't-high' : s === 'low' ? 't-low' : ''}">${pct(f)}</span>`; };
-const COLORS = { high: '#c8453f', ok: '#84c5b2', low: '#d4b38b', na: '#b9ae9c' };
-const PAL = ['#84c5b2', '#a7ded4', '#d4b38b', '#2b8a74', '#8c7a5b', '#000000'];
-try { Chart.defaults.color = getComputedStyle(document.documentElement).getPropertyValue('--muted').trim() || '#595959'; Chart.defaults.borderColor = '#d9d9d9'; } catch (e) {}
+const COLORS = { high: '#d9776c', ok: '#84c5b2', low: '#d4b38b', na: '#b9ae9c' };
+const PAL = ['#84c5b2', '#a7ded4', '#d4b38b', '#2b8a74'];
+const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+try { Chart.defaults.color = cssv('--muted'); Chart.defaults.font.family = cssv('--font') || 'system-ui'; Chart.defaults.font.size = 12; } catch (e) {}
 
 function notice(msg) { const n = $('notice'); n.hidden = !msg; n.textContent = msg || ''; }
 
@@ -207,25 +209,31 @@ function render() {
 
 function overview(sc) {
   const withSales = sc.st.filter(s => s.pct != null);
-  const nHigh = withSales.filter(s => statusOf(s.pct) === 'high').length, nLow = withSales.filter(s => statusOf(s.pct) === 'low').length;
+  const cnt = { high: 0, ok: 0, low: 0 };
+  withSales.forEach(s => cnt[statusOf(s.pct)]++);
   const kp = (l, v, s = '') => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
   $('kpis').innerHTML = kp('Net sales', fmt(sc.sales)) + kp('Wastage value', fmt(sc.waste)) +
-    kp('Overall waste %', `<span class="${statusOf(sc.pct) === 'high' ? 't-high' : statusOf(sc.pct) === 'low' ? 't-low' : ''}">${pct(sc.pct)}</span>`, `${STATUS_LABEL[statusOf(sc.pct)]} (limit ${pct(state.high, 1)})`) +
-    kp('High-waste stores', nHigh, `of ${withSales.length} with sales`) + kp('Unusually low', nLow, `below ${pct(state.low, 1)}`) +
-    kp('Products wasted', fmt(sc.prods.length));
-  state.charts.cat = new Chart($('chCat'), { type: 'bar', data: { labels: sc.cats, datasets: [{ data: sc.cats.map(c => sc.sales ? +(sc.catTotals[c] / sc.sales * 100).toFixed(3) : 0), backgroundColor: [PAL[0], PAL[1], PAL[2], PAL[3]] }] },
-    options: { plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => `${c.parsed.y}% of net sales · ${fmt(sc.catTotals[c.label])}` } } }, scales: { y: { title: { display: true, text: '% of net sales' } } } } });
+    kp('Overall waste %', `<span class="${statusOf(sc.pct) === 'high' ? 't-high' : statusOf(sc.pct) === 'low' ? 't-low' : ''}">${pct(sc.pct)}</span>`, `${STATUS_LABEL[statusOf(sc.pct)]} · limit ${pct(state.high, 1)}`) +
+    kp('High stores', cnt.high, `of ${withSales.length} with sales`) + kp('Unusually low', cnt.low, `below ${pct(state.low, 1)}`) +
+    kp('Products wasted', fmt(sc.prods.length), `${sc.cats.length} categories`);
+  const grid = { color: cssv('--line') }, base = { maintainAspectRatio: false, plugins: { legend: { display: false } } };
+  state.charts.cat = new Chart($('chCat'), { type: 'bar', data: { labels: sc.cats.map(c => c.split(' ')), datasets: [{ data: sc.cats.map(c => sc.sales ? +(sc.catTotals[c] / sc.sales * 100).toFixed(3) : 0), backgroundColor: [PAL[0], PAL[1], PAL[2], PAL[3]], borderRadius: 8, borderSkipped: false, maxBarThickness: 44 }] },
+    options: { ...base, plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => `${c.parsed.y}% of net sales · ${fmt(sc.catTotals[sc.cats[c.dataIndex]])}` } } },
+      scales: { x: { grid: { display: false }, border: { display: false } }, y: { grid, border: { display: false }, ticks: { callback: v => v + '%' } } } } });
+  state.charts.status = new Chart($('chStatus'), { type: 'doughnut', data: { labels: ['High', 'Normal', 'Unusually low'], datasets: [{ data: [cnt.high, cnt.ok, cnt.low], backgroundColor: [COLORS.high, COLORS.ok, COLORS.low], borderWidth: 3, borderColor: cssv('--surface') }] },
+    options: { ...base, cutout: '68%', plugins: { legend: { display: true, position: 'bottom', labels: { usePointStyle: true, boxWidth: 8, padding: 14 } } } } });
   const dd = [...sc.days.keys()].sort((a, b) => a - b);
-  state.charts.day = new Chart($('chDay'), { type: 'bar', data: { labels: dd.map(dayISO), datasets: [{ data: dd.map(d => Math.round(sc.days.get(d))), backgroundColor: PAL[0] }] }, options: { plugins: { legend: { display: false } } } });
-  const ss = [...withSales].sort((a, b) => b.pct - a.pct);
-  const cv = $('chStores'); cv.parentElement.style.width = Math.max(600, ss.length * 16) + 'px';
-  state.charts.stores = new Chart(cv, { type: 'bar', data: { labels: ss.map(s => s.code || s.name), datasets: [
-    { label: 'Waste %', data: ss.map(s => +(s.pct * 100).toFixed(3)), backgroundColor: ss.map(s => COLORS[statusOf(s.pct)]), order: 2 },
-    { type: 'line', label: `High > ${pct(state.high, 1)}`, data: ss.map(() => state.high * 100), borderColor: COLORS.high, borderDash: [6, 4], pointRadius: 0, order: 1 },
-    { type: 'line', label: `Low < ${pct(state.low, 1)}`, data: ss.map(() => state.low * 100), borderColor: COLORS.low, borderDash: [6, 4], pointRadius: 0, order: 1 }] },
-    options: { maintainAspectRatio: false, plugins: { tooltip: { callbacks: { title: i => ss[i[0].dataIndex].name } } }, scales: { y: { title: { display: true, text: '% of net sales' } } } } });
+  state.charts.day = new Chart($('chDay'), { type: 'bar', data: { labels: dd.map(d => dayISO(d).slice(5)), datasets: [{ data: dd.map(d => Math.round(sc.days.get(d))), backgroundColor: PAL[1], borderRadius: 8, borderSkipped: false, maxBarThickness: 36 }] },
+    options: { ...base, scales: { x: { grid: { display: false }, border: { display: false } }, y: { grid, border: { display: false }, ticks: { callback: v => v >= 1000 ? v / 1000 + 'k' : v } } } } });
+  const ss = [...withSales].sort((a, b) => b.pct - a.pct).slice(0, 12);
+  const thr = { id: 'thr', afterDatasetsDraw(ch) {
+    const { ctx, chartArea: a, scales: { x } } = ch; ctx.save(); ctx.setLineDash([5, 4]); ctx.lineWidth = 1.5;
+    [[state.high, COLORS.high], [state.low, COLORS.low]].forEach(([v, col]) => { const px = x.getPixelForValue(v * 100); if (px >= a.left && px <= a.right) { ctx.strokeStyle = col; ctx.beginPath(); ctx.moveTo(px, a.top); ctx.lineTo(px, a.bottom); ctx.stroke(); } }); ctx.restore(); } };
+  state.charts.stores = new Chart($('chStores'), { type: 'bar', plugins: [thr], data: { labels: ss.map(s => s.name.replace(' · ', '  ')), datasets: [{ data: ss.map(s => +(s.pct * 100).toFixed(2)), backgroundColor: ss.map(s => COLORS[statusOf(s.pct)]), borderRadius: 6, borderSkipped: false, barPercentage: .7 }] },
+    options: { ...base, indexAxis: 'y', scales: { x: { grid, border: { display: false }, ticks: { callback: v => v + '%' } }, y: { grid: { display: false }, border: { display: false } } } } });
   const tp = [...sc.prods].sort((a, b) => b.value - a.value).slice(0, 10);
-  state.charts.prod = new Chart($('chProd'), { type: 'bar', data: { labels: tp.map(p => p.name.slice(0, 40)), datasets: [{ data: tp.map(p => Math.round(p.value)), backgroundColor: PAL[0] }] }, options: { indexAxis: 'y', plugins: { legend: { display: false } } } });
+  state.charts.prod = new Chart($('chProd'), { type: 'bar', data: { labels: tp.map(p => p.name.length > 30 ? p.name.slice(0, 29) + '…' : p.name), datasets: [{ data: tp.map(p => Math.round(p.value)), backgroundColor: PAL[0], borderRadius: 6, borderSkipped: false, barPercentage: .7 }] },
+    options: { ...base, indexAxis: 'y', scales: { x: { grid, border: { display: false }, ticks: { callback: v => v >= 1000 ? v / 1000 + 'k' : v } }, y: { grid: { display: false }, border: { display: false } } } } });
 }
 
 function stores(sc) {
@@ -236,7 +244,7 @@ function stores(sc) {
     { k: 'am', h: 'Area manager', f: s => esc(s.am) },
     { k: 'sales', h: 'Net sales', f: s => fmt(s.sales) },
     { k: 'waste', h: 'Waste value', f: s => fmt(s.waste) },
-    { k: 'pct', h: 'Waste %', f: s => pcell(s.pct), def: true, sort: s => s.pct ?? -1 },
+    { k: 'pct', h: 'Waste %', f: s => pbar(s.pct, Math.max(...sc.st.map(x => x.pct || 0))), def: true, sort: s => s.pct ?? -1 },
     ...sc.cats.map(c => ({ k: 'c_' + c, h: c + ' %', f: s => s.sales > 0 ? pct((s.cat[c] || 0) / s.sales) : '–', sort: s => s.sales > 0 ? (s.cat[c] || 0) / s.sales : -1 })),
     { k: 'status', h: 'Status', f: s => chip(statusOf(s.pct)), sort: s => statusOf(s.pct) }
   ];
