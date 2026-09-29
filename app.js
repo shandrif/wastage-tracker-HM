@@ -457,6 +457,20 @@ render();
 let savedView = ''; try { savedView = localStorage.getItem('hmView') || localStorage.getItem('hmPass') || ''; } catch (e) {}
 $('gateBtn').onclick = () => loadShared($('gatePw').value.trim(), true);
 $('gatePw').onkeydown = e => { if (e.key === 'Enter') loadShared($('gatePw').value.trim(), true); };
-loadShared(savedView);
+// ---------- intro animation ----------
+const splash = { el: $('splash'), video: $('splashVideo'), videoDone: false, dataDone: false, gone: false };
+function hideSplash() { if (splash.gone) return; splash.gone = true; splash.el.classList.add('out'); setTimeout(() => splash.el.remove(), 600); }
+function trySplash() { if (splash.videoDone && splash.dataDone) hideSplash(); }
+if (matchMedia('(prefers-reduced-motion: reduce)').matches) { splash.gone = true; splash.el.remove(); }
+else {
+  const vDone = () => { splash.videoDone = true; trySplash(); };
+  splash.video.addEventListener('ended', vDone);
+  splash.video.addEventListener('error', vDone);
+  splash.video.querySelectorAll('source').forEach(s => s.addEventListener('error', () => { if (!splash.video.currentSrc) vDone(); }));
+  const p = splash.video.play(); if (p && p.catch) p.catch(vDone);
+  $('splashSkip').onclick = hideSplash;
+  setTimeout(hideSplash, 8000);
+}
+loadShared(savedView).finally(() => { splash.dataDone = true; trySplash(); });
 window.__wasteApp = { state, handleWasteFiles };
 })();
