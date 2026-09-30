@@ -166,3 +166,15 @@ th button.sort:focus-visible,.rowlink:focus-visible{outline:2px solid var(--teal
   .modal-box,.modal.open .modal-box{transform:none}
   .toast,.toast.show{transform:translate(-50%,0)}
 }
+
+/* ---- weeks ---- */
+.filters .cap{text-transform:none;letter-spacing:0;font-weight:500;font-size:12px;color:var(--muted)}
+#weekSelect{min-width:260px}
+main{transition:opacity 150ms ease}
+main.busy{opacity:.5;pointer-events:none}
+.btn.danger{background:var(--high-bg);border-color:transparent;color:var(--high)}
+@media (hover:hover) and (pointer:fine){.btn.danger:hover{border-color:var(--high)}}
+.btn.danger:disabled{opacity:.45;cursor:not-allowed}
+.delrow{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-top:6px}
+.delpass{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font:500 15px var(--font)}
+.modal-box .gate-msg{min-height:18px;margin-top:8px;text-align:right}

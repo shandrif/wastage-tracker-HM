@@ -27,17 +27,23 @@
         <button class="btn" id="btnTemplate" title="Blank waste + net sales template">↓ Download template</button>
         <label class="btn primary">↑ Upload waste report<input type="file" id="fileWaste" accept=".xlsx,.xls,.csv" multiple hidden></label>
         <hr>
+        <button class="btn danger" id="btnDeleteWeek" hidden>Delete this week…</button>
+        <hr>
         <button class="btn" id="btnMapTemplate">↓ Mapping template</button>
         <label class="btn">↑ Upload mapping<input type="file" id="fileMap" accept=".xlsx,.xls,.csv" hidden></label>
         <button class="btn" id="btnMapReset">Reset to built-in mapping</button>
         <span class="muted small" id="mapInfo"></span>
-        <span class="muted small">Uploads are a private preview until you publish them with the passcode.</span>
+        <span class="muted small">Each upload is saved as its own week (up to 4). Older weeks are kept until you delete them.</span>
       </div>
     </details>
   </div>
 </div></header>
 
 <section class="filters"><div class="wrap">
+  <label id="weekField" hidden>Week
+    <select id="weekSelect"></select>
+    <span id="weekCount" class="cap"></span>
+  </label>
   <label>Area manager
     <select id="amSelect"><option value="">All area managers</option></select>
   </label>

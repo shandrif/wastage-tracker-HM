@@ -11,7 +11,8 @@ const CODE_RE = /(?:^|\b)([A-Za-z]\d{1,3})(?=\b|[^0-9])/;
 const state = {
   records: [], sales: [], mapping: [], mapCustom: false,
   stores: [], am: '', high: 0.014, low: 0.01,
-  sort: {}, charts: {}, tab: 'overview', files: []
+  sort: {}, charts: {}, tab: 'overview', files: [],
+  weeks: [], week: '', weekCache: new Map(), viewPass: '', dirty: false
 };
 
 // ---------- shared storage (Supabase) ----------
@@ -32,55 +33,117 @@ async function packData() {
 async function unpackData(text) {
   const json = text.startsWith('g1:') ? await gunz(unb64(text.slice(3))) : text.slice(3);
   const d = JSON.parse(json);
-  state.records = d.rows.map(r => { const p = d.P[r[2]]; return { code: p[0], name: p[1], um: p[2], storage: d.S[r[0]], cat: d.C[r[1]], qty: r[3], value: r[4], day: r[5] }; });
-  state.sales = d.sales.map(s => ({ code: s[0], label: s[1], storage: s[2], sales: s[3] }));
-  if (d.mapping) loadMapping(d.mapping, true, true);
+  return {
+    records: d.rows.map(r => { const p = d.P[r[2]]; return { code: p[0], name: p[1], um: p[2], storage: d.S[r[0]], cat: d.C[r[1]], qty: r[3], value: r[4], day: r[5] }; }),
+    sales: d.sales.map(s => ({ code: s[0], label: s[1], storage: s[2], sales: s[3] })),
+    mapping: d.mapping || null
+  };
 }
-async function fetchDashboard(pw) {
-  const res = await sapi('rpc/get_dashboard', { method: 'POST', body: JSON.stringify({ p_password: pw }) });
+function applyWeekData(w) {
+  state.records = w.records; state.sales = w.sales;
+  if (w.mapping) loadMapping(w.mapping, true, true); else loadMapping(window.DEFAULT_MAPPING || [], false);
+}
+async function rpc(name, body) {
+  const res = await sapi('rpc/' + name, { method: 'POST', body: JSON.stringify(body) });
   if (res.ok) return res.json();
-  if (/invalid password/i.test(await res.text())) return null;
-  throw new Error('HTTP ' + res.status);
+  const t = await res.text(); const e = new Error(t); e.status = res.status;
+  e.code = /invalid (password|passcode)/i.test(t) ? 'auth' : /week limit/i.test(t) ? 'limit' : /not found/i.test(t) ? 'missing' : 'other';
+  throw e;
 }
+
+// ---------- weeks ----------
+const MAX_WEEKS = 4;
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const fmtDay = (iso, withYear) => { const [y, m, d] = iso.split('-').map(Number); return `${d} ${MONTHS[m - 1]}${withYear ? ' ' + y : ''}`; };
+const weekLabel = (key, meta) => { const from = (meta && meta.from) || key, to = (meta && meta.to) || from; return `${fmtDay(from, from.slice(0, 4) !== to.slice(0, 4))} – ${fmtDay(to, true)}`; };
+function recordDays() { return state.records.map(r => r.day).filter(d => d != null); }
+function weekKeyOf() { const d = recordDays(); return d.length ? dayISO(Math.min(...d)) : new Date().toISOString().slice(0, 10); }
+function currentMeta() { const d = recordDays(); return { files: state.files, records: state.records.length, from: d.length ? dayISO(Math.min(...d)) : null, to: d.length ? dayISO(Math.max(...d)) : null }; }
+function renderWeekSelect() {
+  const sel = $('weekSelect'), items = state.weeks.map(w => ({ key: w.week_key, label: weekLabel(w.week_key, w.meta), saved: true }));
+  if (state.dirty && state.week && !items.some(x => x.key === state.week)) items.push({ key: state.week, label: weekLabel(state.week, currentMeta()), saved: false });
+  items.sort((x, y) => y.key.localeCompare(x.key));
+  $('weekField').hidden = !items.length;
+  sel.innerHTML = items.map((x, n) => `<option value="${x.key}">${esc(x.label)}${!x.saved ? ' · not saved' : n === 0 ? ' · latest' : ''}</option>`).join('');
+  if (items.some(x => x.key === state.week)) sel.value = state.week;
+  $('weekCount').textContent = `${state.weeks.length} of ${MAX_WEEKS} weeks stored`;
+  const saved = state.weeks.some(w => w.week_key === state.week) && !state.dirty;
+  $('btnDeleteWeek').hidden = !savedPass();
+  $('btnDeleteWeek').disabled = !saved;
+  $('btnDeleteWeek').textContent = saved ? `Delete week ${weekLabel(state.week, (state.weeks.find(w => w.week_key === state.week) || {}).meta)}…` : 'Delete this week…';
+}
+const setBusy = on => { document.querySelector('main').classList.toggle('busy', on); $('weekSelect').disabled = on; };
+async function refreshWeeks() {
+  const d = await rpc('get_weeks', { p_password: state.viewPass });
+  state.weeks = d.weeks; renderWeekSelect();
+}
+async function selectWeek(key) {
+  if (key === state.week && state.dirty) return;
+  if (state.dirty) { state.dirty = false; $('publishBar').hidden = true; toast('The unsaved upload was discarded.'); }
+  setBusy(true);
+  try {
+    let w = state.weekCache.get(key);
+    if (!w) {
+      const r = await rpc('get_week', { p_password: state.viewPass, p_week: key });
+      w = await unpackData(r.payload); w.meta = r.meta || {}; w.updated_at = r.updated_at; state.weekCache.set(key, w);
+    }
+    state.week = key; applyWeekData(w);
+    state.published = { at: w.updated_at, meta: w.meta }; state.files = (w.meta && w.meta.files) || [];
+    build(); render();
+  } catch (e) { toast('Could not load that week. Check your connection and try again.'); }
+  setBusy(false); renderWeekSelect();
+}
+
 function lock(msg) { document.body.classList.add('locked'); $('gate').hidden = false; $('gateMsg').textContent = msg || ''; $('gatePw').focus(); }
 async function loadShared(pw, fromGate) {
   if (!pw) { lock(''); return; }
   $('gateBtn').disabled = true;
   let d;
-  try { d = await fetchDashboard(pw); }
-  catch (e) { $('gateBtn').disabled = false; lock('Could not reach the server. Check your connection and try again.'); return; }
+  try { d = await rpc('get_weeks', { p_password: pw }); }
+  catch (e) {
+    $('gateBtn').disabled = false;
+    if (e.code === 'auth') { try { localStorage.removeItem('hmView'); } catch (x) {} lock(fromGate ? 'Wrong password. Try again.' : 'Please enter the password.'); }
+    else lock('Could not reach the server. Check your connection and try again.');
+    return;
+  }
   $('gateBtn').disabled = false;
-  if (!d) { try { localStorage.removeItem('hmView'); } catch (e) {} lock(fromGate ? 'Wrong password. Try again.' : 'Please enter the password.'); return; }
   try { localStorage.setItem('hmView', pw); if (d.admin) localStorage.setItem('hmPass', pw); } catch (e) {}
+  state.viewPass = pw; state.weeks = d.weeks;
   document.body.classList.remove('locked'); $('gate').hidden = true; $('gatePw').value = '';
-  if (d.empty) { $('emptyTitle').textContent = 'No data published yet'; $('emptyText').textContent = 'Open “Update data” to upload the first waste report and publish it.'; return; }
-  try {
-    await unpackData(d.payload);
-    state.published = { at: d.updated_at, meta: d.meta || {} };
-    state.files = state.published.meta.files || [];
-    build(); render();
-  } catch (e) { $('emptyTitle').textContent = 'Could not read the published data'; $('emptyText').textContent = 'Reload the page. If it persists, publish the report again.'; }
+  if (!d.weeks.length) { $('emptyTitle').textContent = 'No data published yet'; $('emptyText').textContent = 'Open “Update data” to upload the first waste report and publish it.'; renderWeekSelect(); return; }
+  await selectWeek(d.weeks[0].week_key);
 }
 const savedPass = () => { try { return localStorage.getItem('hmPass') || ''; } catch (e) { return ''; } };
 function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 6000); }
 function markDirty() {
-  state.dirty = true; $('pubMsg').textContent = '';
+  state.dirty = true; state.week = weekKeyOf(); $('pubMsg').textContent = ''; renderWeekSelect();
   if (savedPass()) publish(savedPass()); else $('publishBar').hidden = false;
 }
 window.addEventListener('beforeunload', e => { if (state.dirty) { e.preventDefault(); e.returnValue = ''; } });
 async function publish(auto) {
   const pass = typeof auto === 'string' ? auto : $('passcode').value, msg = $('pubMsg'), btn = $('btnPublish');
   if (!pass) { msg.textContent = 'Enter the passcode.'; return; }
+  const key = weekKeyOf(), existed = state.weeks.some(w => w.week_key === key), label = weekLabel(key, currentMeta());
+  if (!existed && state.weeks.length >= MAX_WEEKS) {
+    $('publishBar').hidden = false; msg.textContent = `All ${MAX_WEEKS} week slots are used. Delete a week first (Update data → Delete week), then publish again.`;
+    toast(`Not saved: ${MAX_WEEKS} weeks are already stored. Delete one first.`); return;
+  }
   btn.disabled = true; msg.textContent = 'Saving…'; if (typeof auto === 'string') toast('Saving to the shared dashboard…');
   try {
-    const days = state.records.map(r => r.day).filter(d => d != null);
-    const meta = { files: state.files, records: state.records.length, from: days.length ? dayISO(Math.min(...days)) : null, to: days.length ? dayISO(Math.max(...days)) : null };
-    const res = await sapi('rpc/save_dashboard', { method: 'POST', body: JSON.stringify({ p_passcode: pass, p_payload: await packData(), p_meta: meta }) });
-    if (!res.ok) { const t = await res.text(); if (/invalid passcode/i.test(t)) { try { localStorage.removeItem('hmPass'); } catch (e) {} $('publishBar').hidden = false; throw new Error('Wrong passcode.'); } throw new Error('Not saved (error ' + res.status + '). Try again.'); }
-    state.published = { at: await res.json(), meta }; state.dirty = false; $('passcode').value = ''; $('publishBar').hidden = true;
+    const meta = currentMeta();
+    const ts = await rpc('save_week', { p_passcode: pass, p_week: key, p_payload: await packData(), p_meta: meta });
+    state.weekCache.set(key, { records: state.records, sales: state.sales, mapping: state.mapCustom ? state.mapping : null, meta, updated_at: ts });
+    state.week = key; state.published = { at: ts, meta }; state.dirty = false; $('passcode').value = ''; $('publishBar').hidden = true;
     try { localStorage.setItem('hmPass', pass); } catch (e) {}
-    notice(''); render(); toast('✓ Saved. Everyone opening the link now sees this data, replacing the previous upload.');
-  } catch (e) { $('publishBar').hidden = false; msg.textContent = e.message; toast('Not saved yet. ' + e.message); }
+    await refreshWeeks(); notice(''); render();
+    toast(existed ? `✓ Week ${label} was replaced with the new upload.` : `✓ Saved as week ${label}. Your other weeks are kept.`);
+  } catch (e) {
+    $('publishBar').hidden = false;
+    if (e.code === 'auth') { try { localStorage.removeItem('hmPass'); } catch (x) {} msg.textContent = 'Wrong passcode.'; }
+    else if (e.code === 'limit') msg.textContent = `All ${MAX_WEEKS} week slots are used. Delete a week first, then publish again.`;
+    else msg.textContent = 'Not saved. Check your connection and try again.';
+    toast('Not saved yet. ' + msg.textContent);
+  }
   btn.disabled = false;
 }
 
@@ -420,6 +483,34 @@ function productModal(p, sc) {
     <table><thead><tr><th>Store</th><th>Qty</th><th>Value</th><th>% of store sales</th></tr></thead><tbody>${rows.map(({ s, p: q }) => `<tr><td>${esc(s.name)}</td><td>${fmt(q.qty, 1)}</td><td>${fmt(q.value)}</td><td>${s.sales > 0 ? pct(q.value / s.sales, 3) : '–'}</td></tr>`).join('')}</tbody></table>`);
 }
 
+// ---------- delete a week ----------
+function deleteWeekDialog() {
+  const key = state.week, w = state.weeks.find(x => x.week_key === key);
+  if (!w || state.dirty) return;
+  const label = weekLabel(key, w.meta), needPass = !savedPass();
+  openModal(`<h2>Delete this week?</h2>
+    <p>This permanently deletes <b>${esc(label)}</b> and all of its waste and sales data (${fmt((w.meta && w.meta.records) || 0)} records). Your other weeks are not affected. This cannot be undone.</p>
+    ${needPass ? '<p><input type="password" id="delPass" class="delpass" placeholder="Upload passcode" autocomplete="off" aria-label="Upload passcode"></p>' : ''}
+    <div class="delrow"><button type="button" class="btn" id="delCancel">Cancel</button><button type="button" class="btn danger" id="delConfirm">Delete week</button></div>
+    <div id="delMsg" class="small gate-msg" aria-live="polite"></div>`);
+  $('delCancel').onclick = closeModal;
+  $('delConfirm').onclick = async () => {
+    const pass = savedPass() || ($('delPass') && $('delPass').value) || '', msg = $('delMsg'), btn = $('delConfirm');
+    if (!pass) { msg.textContent = 'Enter the passcode.'; return; }
+    btn.disabled = true; msg.textContent = 'Deleting…';
+    try {
+      await rpc('delete_week', { p_passcode: pass, p_week: key });
+      state.weekCache.delete(key); closeModal(); await refreshWeeks();
+      if (state.weeks.length) await selectWeek(state.weeks[0].week_key);
+      else { state.records = []; state.sales = []; state.week = ''; state.published = null; build(); render(); $('emptyTitle').textContent = 'No data published yet'; $('emptyText').textContent = 'Open “Update data” to upload a waste report and publish it.'; renderWeekSelect(); }
+      toast(`✓ Week ${label} was deleted.`);
+    } catch (e) {
+      if (e.code === 'auth') { try { localStorage.removeItem('hmPass'); } catch (x) {} msg.textContent = 'Wrong passcode.'; } else msg.textContent = 'Not deleted. Check your connection and try again.';
+      btn.disabled = false;
+    }
+  };
+}
+
 // ---------- templates ----------
 async function saveWB(wb, name) {
   const dl = window.claude ? await window.claude.use('downloads').catch(() => null) : null;
@@ -467,6 +558,8 @@ $('fileMap').onchange = async e => {
   } catch (err) { notice('Mapping file: ' + err.message); }
 };
 $('amSelect').onchange = e => { state.am = e.target.value; render(); };
+$('weekSelect').onchange = e => selectWeek(e.target.value);
+$('btnDeleteWeek').onclick = deleteWeekDialog;
 $('thHigh').onchange = e => { state.high = (+e.target.value || 0) / 100; render(); };
 $('thLow').onchange = e => { state.low = (+e.target.value || 0) / 100; render(); };
 ['storeSearch', 'storeStatus', 'prodSearch', 'prodCat'].forEach(id => $(id).oninput = render);
