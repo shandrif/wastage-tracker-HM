@@ -221,3 +221,14 @@ main.busy{opacity:.5;pointer-events:none}
 .mx td.it{white-space:normal;min-width:170px;max-width:260px}
 .mx td.cat{white-space:normal;max-width:140px}
 .mx th,.mx td{padding:8px 8px}
+
+/* ---- reduce by: one simple number + a 7-day picture ---- */
+.cutpill{display:inline-block;padding:5px 14px;border-radius:99px;background:var(--ok-bg);color:var(--ok);font-weight:800;font-size:15px;white-space:nowrap}
+.cutpill.sm{padding:3px 10px;font-size:13px}
+.stripcell{text-align:left!important}
+.stripwrap{display:inline-flex;flex-direction:column;gap:3px}
+.strip{display:grid;grid-template-columns:repeat(7,14px);gap:4px;align-items:end;height:34px}
+.strip.lbl{height:auto;font-size:10px;color:var(--muted);text-align:center;line-height:1}
+.strip.lbl b{font-weight:600}
+.sb{display:block;height:calc(4px + var(--h,0)*30px);border-radius:4px 4px 2px 2px;background:var(--mint)}
+.sb.z{background:var(--line);height:3px}
