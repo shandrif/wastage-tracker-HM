@@ -429,12 +429,17 @@ function fcRows() {
   return { rows, wks };
 }
 function storewaste() {
+  document.querySelectorAll('#fcViewSeg button').forEach(b => b.setAttribute('aria-pressed', b.dataset.fcv === fc.tabView));
+  const red = fc.tabView === 'reduce';
+  $('redCtl').hidden = !red; $('fcDownloadAll').hidden = !red;
+  $('fcHint').textContent = red ? '' : 'Stores ranked by waste value, highest first, with every stored week side by side. Click a store to see which items create the waste, by week or by day.';
   const need = state.weeks.filter(w => !state.weekCache.has(w.week_key));
   if (need.length && !state.wkLoading && !state.wkError) {
     state.wkLoading = true; state.wkError = false;
     loadAllWeeks().then(() => { state.wkLoading = false; if (state.tab === 'storewaste') render(); })
       .catch(() => { state.wkLoading = false; state.wkError = true; if (state.tab === 'storewaste') render(); });
   }
+  if (red) return renderReduceTab(need);
   const { rows: all, wks } = fcRows(), q = norm($('fcSearch').value), rows = all.filter(r => !q || norm(r.name + ' ' + r.am).includes(q));
   const total = all.reduce((s, r) => s + r.total, 0), top = all[0];
   const kp = (l, v, s = '') => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
@@ -454,7 +459,89 @@ function storewaste() {
   else table($('tblFc'), cols, rows, 'fc', r => openStoreForecast(r));
   state.fcExport = { rows, wks };
 }
+// ---------- reduce by: cut ordering/production by 80-90% of the average daily waste of the past 7 days ----------
+function weekDaySet(w) { if (!w._daySet) { const s = new Set(); for (const r of w.records) if (r.day != null) s.add(r.day); w._daySet = s; } return w._daySet; }
+const q1 = v => v >= 100 ? fmt(v, 0) : fmt(v, 1);
+const rng = (x, y, f) => { const a = f(x), b = f(y); return a === b ? a : `${a} – ${b}`; };
+function reduceCalc() {
+  const wks = fcWeeks(); if (!wks.length) return null;
+  const present = new Set(); wks.forEach(k => weekDaySet(state.weekCache.get(k)).forEach(d => present.add(d)));
+  if (!present.size) return null;
+  const latest = Math.max(...present), days = []; for (let d = latest - 6; d <= latest; d++) days.push(d);
+  const div = Math.max(1, days.filter(d => present.has(d)).length);
+  const lo = Math.min(fc.lo, fc.hi) / 100, hi = Math.max(fc.lo, fc.hi) / 100, map = new Map();
+  for (const wk of [...wks].reverse()) for (const [sk, s] of weekStores(state.weekCache.get(wk))) {
+    if (state.am && s.am !== state.am) continue;
+    for (const [pk, p] of s.prod) for (const d of days) {
+      const x = p.days.get(d); if (!x || !(x.qty > 0)) continue;
+      const key = sk + '|' + pk; let r = map.get(key);
+      if (!r) map.set(key, r = { sk, key: sk, store: s.name, am: s.am, item: p.name, um: p.um, cat: p.cat, qty: 0, val: 0, nd: 0, seen: new Set() });
+      if (r.seen.has(d)) continue; r.seen.add(d); r.qty += x.qty; r.val += x.value; r.nd++;
+    }
+  }
+  const rows = [...map.values()].filter(r => r.nd >= fc.minDays).map(r => {
+    const unit = r.qty ? r.val / r.qty : 0; r.avg = r.qty / div; r.dLo = r.avg * lo; r.dHi = r.avg * hi;
+    r.wLo = r.avg * 7 * lo; r.wHi = r.avg * 7 * hi; r.sLo = r.wLo * unit; r.sHi = r.wHi * unit; return r;
+  });
+  const st = new Map();
+  for (const r of rows) { const s = st.get(r.sk) || { sk: r.sk, key: r.sk, name: r.store, am: r.am, n: 0, val: 0, sLo: 0, sHi: 0 }; s.n++; s.val += r.val; s.sLo += r.sLo; s.sHi += r.sHi; st.set(r.sk, s); }
+  const stores = [...st.values()].sort((x, y) => y.sHi - x.sHi); stores.forEach((s, i) => { s.rank = i + 1; });
+  const iso0 = dayISO(days[0]), iso1 = dayISO(days[6]);
+  return { rows, stores, div, lo, hi, days, label: `${fmtDay(iso0, iso0.slice(0, 4) !== iso1.slice(0, 4))} – ${fmtDay(iso1, true)}`,
+    totLo: stores.reduce((s, x) => s + x.sLo, 0), totHi: stores.reduce((s, x) => s + x.sHi, 0) };
+}
+const redNote = c => `for each item we take the waste quantity of the past 7 days (${c.label}), divide by ${c.div === 7 ? '7' : c.div + ' days of data'} for the average daily waste, and suggest cutting the daily order or production by ${Math.round(c.lo * 100)}–${Math.round(c.hi * 100)}% of it. Value saved uses the item's average cost per unit from your waste records.`;
+function renderReduceTab(need) {
+  const c = reduceCalc(), q = norm($('fcSearch').value);
+  const kp = (l, v, s = '') => `<div class="kpi"><div class="l">${l}</div><div class="v${String(v).length > 12 ? ' vl' : ''}">${v}</div><div class="s">${s}</div></div>`;
+  $('fcStatus').textContent = state.wkError ? 'Some weeks could not be loaded.' : need.length ? `Loading ${need.length} more week${need.length === 1 ? '' : 's'}…` : '';
+  if (!c || !c.stores.length) {
+    $('fcKpis').innerHTML = ''; state.fcExport = { kind: 'reduce', stores: [], c: null };
+    $('tblFc').innerHTML = `<tbody><tr><td class="muted" style="text-align:center;padding:32px">${need.length ? 'Loading weeks…' : 'No items match. Try a lower “at least” number of days.'}</td></tr></tbody>`; return;
+  }
+  $('fcHint').textContent = 'How it works: ' + redNote(c);
+  $('fcKpis').innerHTML = kp('Saving per week', rng(c.totLo, c.totHi, fmt), `cut ${Math.round(c.lo * 100)}–${Math.round(c.hi * 100)}% of average daily waste`) +
+    kp('Stores', c.stores.length, state.am || 'all area managers') + kp('Items to cut', fmt(c.rows.length), `wasted on ${fc.minDays}+ of the last 7 days`) + kp('Based on', c.label, `${c.div} day${c.div === 1 ? '' : 's'} of data`);
+  const stores = c.stores.filter(s => !q || norm(s.name + ' ' + s.am).includes(q));
+  const cols = [
+    { k: 'name', h: 'Store', f: s => `<span class="rk">${s.rank}</span>${esc(s.name)}`, sort: s => s.name },
+    { k: 'am', h: 'Area manager', f: s => esc(s.am) },
+    { k: 'n', h: 'Items to cut', f: s => s.n },
+    { k: 'val', h: 'Waste last 7 days', f: s => fmt(s.val) },
+    { k: 'sHi', h: 'Saving per week', f: s => `<b>${rng(s.sLo, s.sHi, fmt)}</b>`, def: true }
+  ];
+  if (!stores.length) $('tblFc').innerHTML = '<tbody><tr><td class="muted" style="text-align:center;padding:32px">No store matches your search.</td></tr></tbody>';
+  else table($('tblFc'), cols, stores, 'red', s => openStoreForecast(s, 'reduce'));
+  state.fcExport = { kind: 'reduce', stores, c };
+}
+function reduceModalHtml(m) {
+  const c = reduceCalc(), rows = c ? c.rows.filter(r => r.sk === fc.key).sort((x, y) => y.sHi - x.sHi) : [];
+  const head = `<h2>${esc(m.info.name)}</h2><div class="muted">${esc(m.info.am)}${m.info.rom ? ' · ROM ' + esc(m.info.rom) : ''}${m.info.city ? ' · ' + esc(m.info.city) : ''}</div>`;
+  const ctl = `<div class="fc-controls">${fcSeg('view', FC_VIEWS)}<button type="button" class="btn fc-dl" data-fc="download">↓ Excel</button></div>`;
+  if (!c || !rows.length) return head + ctl + `<p class="muted">No items to reduce for this store${fc.minDays > 1 ? ` (showing only items wasted on ${fc.minDays}+ of the last 7 days)` : ''}.</p>`;
+  const body = rows.map(r => `<tr><td class="it">${esc(r.item)} <small>${esc(r.um)}</small></td><td class="cat">${esc(r.cat)}</td><td>${r.nd} / 7</td><td>${q1(r.qty)}</td><td>${q1(r.avg)}</td><td class="tot">${rng(r.dLo, r.dHi, q1)}</td><td>${rng(r.wLo, r.wHi, q1)}</td><td class="tot">${rng(r.sLo, r.sHi, fmt)}</td></tr>`).join('');
+  const tLo = rows.reduce((s, r) => s + r.sLo, 0), tHi = rows.reduce((s, r) => s + r.sHi, 0);
+  return head + `<p class="fc-sum">Potential saving <b>${rng(tLo, tHi, fmt)}</b> per week across <b>${rows.length}</b> item${rows.length === 1 ? '' : 's'}.</p>` + ctl +
+    `<div class="mx"><table><thead><tr><th>Item</th><th>Category</th><th>Days wasted</th><th>Waste, last 7 days</th><th>Avg daily waste</th><th>Cut per day</th><th>Cut per week</th><th>Saving per week</th></tr></thead><tbody>${body}</tbody><tfoot><tr><td class="it">All items</td><td></td><td></td><td></td><td></td><td></td><td></td><td class="tot">${rng(tLo, tHi, fmt)}</td></tr></tfoot></table></div>
+    <p class="muted small">How it works: ${redNote(c)} Change the percentage range on the Waste by store tab. Items wasted on only a few days are less predictable, so cut them more carefully.</p>`;
+}
 function downloadFcTable() {
+  if (fc.tabView === 'reduce') {
+    const { stores, c } = state.fcExport || {}; if (!c) return;
+    const aoa = [['Rank', 'Store', 'Area manager', 'Items to cut', 'Waste last 7 days', 'Saving per week (low)', 'Saving per week (high)'],
+      ...stores.map(s => [s.rank, s.name, s.am, s.n, Math.round(s.val * 100) / 100, Math.round(s.sLo * 100) / 100, Math.round(s.sHi * 100) / 100])];
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), 'Reduce by - stores'); saveWB(wb, 'Reduce_by_stores.xlsx'); return;
+  }
+  downloadRankTable();
+}
+function downloadReduceItems() {
+  const c = reduceCalc(); if (!c) return;
+  const r2 = v => Math.round(v * 100) / 100, q = norm($('fcSearch').value);
+  const aoa = [['Store', 'Area manager', 'Item', 'Unit', 'Category', 'Days wasted (of 7)', 'Waste last 7 days', 'Avg daily waste', `Cut per day (${Math.round(c.lo * 100)}%)`, `Cut per day (${Math.round(c.hi * 100)}%)`, 'Cut per week (low)', 'Cut per week (high)', 'Saving per week (low)', 'Saving per week (high)'],
+    ...c.rows.filter(r => !q || norm(r.store + ' ' + r.am).includes(q)).sort((x, y) => y.sHi - x.sHi).map(r => [r.store, r.am, r.item, r.um, r.cat, r.nd, r2(r.qty), r2(r.avg), r2(r.dLo), r2(r.dHi), r2(r.wLo), r2(r.wHi), r2(r.sLo), r2(r.sHi)])];
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), 'Reduce by - items'); saveWB(wb, 'Reduce_by_items.xlsx');
+}
+function downloadRankTable() {
   const { rows, wks } = state.fcExport || { rows: [], wks: [] };
   const aoa = [['Rank', 'Store', 'Area manager', ...wks.map(k => 'Week ' + weekLabel(k, (state.weeks.find(w => w.week_key === k) || {}).meta)), 'Total', 'Average per week', 'Last vs previous week %'],
     ...rows.map(r => [r.rank, r.name, r.am, ...wks.map(k => Math.round((r.w[k] || 0) * 100) / 100), Math.round(r.total * 100) / 100, Math.round(r.avg * 100) / 100, r.trend == null ? '' : Math.round(r.trend * 1000) / 10])];
@@ -462,9 +549,9 @@ function downloadFcTable() {
 }
 
 // store detail: items by week or by day (value or quantity)
-const fc = { key: '', mode: 'week', metric: 'value', dayWeek: '' };
-function openStoreForecast(row) {
-  fc.key = row.key; fc.mode = 'week'; fc.metric = 'value'; const w = fcWeeks(); fc.dayWeek = w[w.length - 1] || '';
+const fc = { key: '', mode: 'week', metric: 'value', dayWeek: '', tabView: 'rank', lo: 80, hi: 90, minDays: 1 };
+function openStoreForecast(row, mode) {
+  fc.key = row.key; fc.mode = mode || 'week'; fc.metric = 'value'; const w = fcWeeks(); fc.dayWeek = w[w.length - 1] || '';
   openModal(fcModalHtml(), { wide: true });
 }
 function fcModel() {
@@ -498,9 +585,12 @@ function fcModel() {
   const foot = fc.metric === 'value' ? cols.map((c, i) => rows.reduce((s, r) => s + r.vals[i], 0)) : null;
   return { wks, cols, rows, foot, info, avgLabel, storeW, scopeTotal };
 }
+const fcSeg = (name, opts) => `<div class="seg" role="group" aria-label="${name}">${opts.map(([v, l]) => `<button type="button" data-fc="${name}:${v}" aria-pressed="${fc[name === 'view' ? 'mode' : name] === v}">${l}</button>`).join('')}</div>`;
+const FC_VIEWS = [['week', 'By week'], ['day', 'By day'], ['reduce', 'Reduce by']];
 function fcModalHtml() {
   const m = fcModel();
   if (!m.info) return '<h2>No data</h2><p class="muted">This store has no waste in the stored weeks.</p>';
+  if (fc.mode === 'reduce') return reduceModalHtml(m);
   const nf = v => v > 0 ? (fc.metric === 'qty' ? fmt(v, 1) : fmt(v)) : '<span class="dim">–</span>';
   const max = Math.max(0, ...m.rows.flatMap(r => r.vals));
   const seg = (name, opts) => `<div class="seg" role="group" aria-label="${name}">${opts.map(([v, l]) => `<button type="button" data-fc="${name}:${v}" aria-pressed="${fc[name === 'view' ? 'mode' : name] === v}">${l}</button>`).join('')}</div>`;
@@ -511,7 +601,7 @@ function fcModalHtml() {
   const foot = m.foot ? `<tfoot><tr><td class="it">All items</td><td></td>${m.foot.map(v => `<td>${nf(v)}</td>`).join('')}<td class="tot">${nf(m.foot.reduce((s, v) => s + v, 0))}</td><td>${nf(m.foot.reduce((s, v) => s + v, 0) / (m.cols.length || 1))}</td><td></td></tr></tfoot>` : '';
   return `<h2>${esc(m.info.name)}</h2><div class="muted">${esc(m.info.am)}${m.info.rom ? ' · ROM ' + esc(m.info.rom) : ''}${m.info.city ? ' · ' + esc(m.info.city) : ''}</div>
     <p class="fc-sum">Waste value <b>${fmt(allTotal)}</b> over ${nW} week${nW === 1 ? '' : 's'} · average <b>${fmt(allTotal / nW)}</b> per week</p>
-    <div class="fc-controls">${seg('view', [['week', 'By week'], ['day', 'By day']])}${seg('metric', [['value', 'Waste value'], ['qty', 'Quantity']])}
+    <div class="fc-controls">${seg('view', FC_VIEWS)}${seg('metric', [['value', 'Waste value'], ['qty', 'Quantity']])}
       ${fc.mode === 'day' ? `<label class="fc-wk">Week <select data-fc-week aria-label="Week for the day view">${wkOpts}</select></label>` : ''}
       <button type="button" class="btn fc-dl" data-fc="download">↓ Excel</button></div>
     ${m.rows.length ? `<div class="mx"><table><thead><tr><th>Item</th><th>Category</th>${heads}<th>Total</th><th>${m.avgLabel}</th><th>${fc.metric === 'value' ? 'Share' : ''}</th></tr></thead><tbody>${body}</tbody>${foot}</table></div>` : '<p class="muted">Nothing to show for this selection.</p>'}
@@ -524,6 +614,12 @@ function refreshFcModal(focusSel) {
 }
 function downloadFcModal() {
   const m = fcModel(); if (!m.info) return;
+  if (fc.mode === 'reduce') {
+    const c = reduceCalc(); if (!c) return; const r2 = v => Math.round(v * 100) / 100;
+    const aoa = [['Item', 'Unit', 'Category', 'Days wasted (of 7)', 'Waste last 7 days', 'Avg daily waste', 'Cut per day (low)', 'Cut per day (high)', 'Cut per week (low)', 'Cut per week (high)', 'Saving per week (low)', 'Saving per week (high)'],
+      ...c.rows.filter(r => r.sk === fc.key).sort((x, y) => y.sHi - x.sHi).map(r => [r.item, r.um, r.cat, r.nd, r2(r.qty), r2(r.avg), r2(r.dLo), r2(r.dHi), r2(r.wLo), r2(r.wHi), r2(r.sLo), r2(r.sHi)])];
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), 'Reduce by'); saveWB(wb, `${m.info.code || 'store'}_reduce_by.xlsx`); return;
+  }
   const aoa = [['Item', 'Unit', 'Category', ...m.cols.map(c => c.label), 'Total', m.avgLabel, ...(fc.metric === 'value' ? ['Share %'] : [])],
     ...m.rows.map(r => [r.name, r.um, r.cat, ...r.vals.map(v => Math.round(v * 100) / 100), Math.round(r.total * 100) / 100, Math.round(r.avg * 100) / 100, ...(r.share == null ? [] : [Math.round(r.share * 1000) / 10])])];
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), 'Items');
@@ -538,6 +634,12 @@ $('modalBody').addEventListener('click', e => {
 });
 $('modalBody').addEventListener('change', e => { if (e.target.matches('[data-fc-week]')) { fc.dayWeek = e.target.value; refreshFcModal('[data-fc-week]'); } });
 $('fcDownload').onclick = downloadFcTable;
+$('fcDownloadAll').onclick = downloadReduceItems;
+$('fcViewSeg').onclick = e => { const b = e.target.closest('[data-fcv]'); if (b) { fc.tabView = b.dataset.fcv; render(); } };
+const clampPct = v => Math.max(1, Math.min(100, Math.round(+v || 0)));
+$('redLo').onchange = e => { fc.lo = clampPct(e.target.value); e.target.value = fc.lo; render(); };
+$('redHi').onchange = e => { fc.hi = clampPct(e.target.value); e.target.value = fc.hi; render(); };
+$('redDays').onchange = e => { fc.minDays = +e.target.value || 1; render(); };
 
 function products(sc) {
   const sel = $('prodCat'), cur = sel.value;

@@ -105,10 +105,17 @@
   </section>
 
   <section id="tab-storewaste" class="tab" role="tabpanel" aria-labelledby="tabbtn-storewaste" hidden>
+    <div class="fc-tabtop">
+      <div class="seg" id="fcViewSeg" role="group" aria-label="Waste by store view"><button type="button" data-fcv="rank" aria-pressed="true">Waste ranking</button><button type="button" data-fcv="reduce" aria-pressed="false">Reduce by</button></div>
+      <div id="redCtl" class="red-ctl" hidden>
+        <span>Cut by</span><input type="number" id="redLo" min="1" max="100" value="80" aria-label="Lowest percent of average daily waste to cut"><span>–</span><input type="number" id="redHi" min="1" max="100" value="90" aria-label="Highest percent of average daily waste to cut"><span>% of average daily waste</span>
+        <label class="red-days">Items wasted on at least <select id="redDays" aria-label="Minimum days with waste in the last 7"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="7">7</option></select> of the last 7 days</label>
+      </div>
+    </div>
     <div class="kpis" id="fcKpis"></div>
     <div class="toolbar"><input type="search" id="fcSearch" placeholder="Search store or area manager…" aria-label="Search stores">
-      <button type="button" class="btn" id="fcDownload">↓ Download Excel</button><span id="fcStatus" class="muted small" aria-live="polite"></span></div>
-    <p class="muted small fc-hint">Stores ranked by waste value, highest first, with every stored week side by side. Click a store to see which items create the waste, by week or by day.</p>
+      <button type="button" class="btn" id="fcDownload">↓ Download Excel</button><button type="button" class="btn" id="fcDownloadAll" hidden>↓ Excel (all items)</button><span id="fcStatus" class="muted small" aria-live="polite"></span></div>
+    <p class="muted small fc-hint" id="fcHint"></p>
     <div class="card tablewrap"><table id="tblFc"></table></div>
   </section>
 
