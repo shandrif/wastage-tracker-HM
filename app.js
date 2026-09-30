@@ -62,7 +62,7 @@ async function loadShared(pw, fromGate) {
   } catch (e) { $('emptyTitle').textContent = 'Could not read the published data'; $('emptyText').textContent = 'Reload the page. If it persists, publish the report again.'; }
 }
 const savedPass = () => { try { return localStorage.getItem('hmPass') || ''; } catch (e) { return ''; } };
-function toast(msg) { const t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 6000); }
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 6000); }
 function markDirty() {
   state.dirty = true; $('pubMsg').textContent = '';
   if (savedPass()) publish(savedPass()); else $('publishBar').hidden = false;
@@ -246,10 +246,11 @@ function table(el, cols, rows, key, onRow) {
     if (x == null) return 1; if (y == null) return -1;
     return (typeof x === 'string' ? x.localeCompare(y) : x - y) * s.dir;
   });
-  el.innerHTML = `<thead><tr>${cols.map(c => `<th data-k="${c.k}" class="${c.k === s.col ? 'sorted' : ''}">${c.h}${c.k === s.col ? (s.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('')}</tr></thead>` +
-    `<tbody>${data.map((r, i) => `<tr class="${onRow ? 'click' : ''}" data-i="${i}">${cols.map(c => `<td>${c.f(r)}</td>`).join('')}</tr>`).join('')}</tbody>`;
-  el.querySelectorAll('th').forEach(th => th.onclick = () => {
-    const k = th.dataset.k; state.sort[key] = { col: k, dir: s.col === k ? -s.dir : (typeof (rows[0]?.[k]) === 'string' ? 1 : -1) }; render();
+  el.innerHTML = `<thead><tr>${cols.map(c => `<th data-k="${c.k}" class="${c.k === s.col ? 'sorted' : ''}" aria-sort="${c.k === s.col ? (s.dir > 0 ? 'ascending' : 'descending') : 'none'}"><button type="button" class="sort" data-k="${c.k}">${c.h}${c.k === s.col ? (s.dir > 0 ? ' ▲' : ' ▼') : ''}</button></th>`).join('')}</tr></thead>` +
+    `<tbody>${data.map((r, i) => `<tr class="${onRow ? 'click' : ''}" data-i="${i}">${cols.map((c, ci) => `<td>${onRow && ci === 0 ? `<button type="button" class="rowlink">${c.f(r)}</button>` : c.f(r)}</td>`).join('')}</tr>`).join('')}</tbody>`;
+  el.querySelectorAll('th button.sort').forEach(btn => btn.onclick = () => {
+    const k = btn.dataset.k; state.sort[key] = { col: k, dir: s.col === k ? -s.dir : (typeof (rows[0]?.[k]) === 'string' ? 1 : -1) }; render();
+    const again = el.querySelector(`th button.sort[data-k="${k}"]`); if (again) again.focus({ preventScroll: true });
   });
   if (onRow) el.querySelectorAll('tbody tr').forEach(tr => tr.onclick = () => onRow(data[+tr.dataset.i]));
 }
@@ -257,8 +258,9 @@ const pbar = (f, max) => { const s = statusOf(f); return f == null ? '–' : `<d
 const pcell = f => { const s = statusOf(f); return `<span class="${s === 'high' ? 't-high' : s === 'low' ? 't-low' : ''}">${pct(f)}</span>`; };
 const COLORS = { high: '#d9776c', ok: '#84c5b2', low: '#d4b38b', na: '#b9ae9c' };
 const PAL = ['#84c5b2', '#a7ded4', '#d4b38b', '#2b8a74'];
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-try { Chart.defaults.color = cssv('--muted'); Chart.defaults.font.family = cssv('--font') || 'system-ui'; Chart.defaults.font.size = 12; } catch (e) {}
+try { Chart.defaults.color = cssv('--muted'); Chart.defaults.font.family = cssv('--font') || 'system-ui'; Chart.defaults.font.size = 12; Chart.defaults.animation = reduceMotion ? false : { duration: 450, easing: 'easeOutQuart' }; } catch (e) {}
 
 function notice(msg) { const n = $('notice'); n.hidden = !msg; n.textContent = msg || ''; }
 
@@ -268,7 +270,8 @@ function render() {
   const has = state.records.length > 0;
   $('empty').hidden = has;
   document.querySelectorAll('.tab').forEach(t => t.hidden = !has || t.id !== 'tab-' + state.tab);
-  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === state.tab));
+  document.querySelectorAll('#tabs button').forEach(b => { const on = b.dataset.tab === state.tab; b.classList.toggle('active', on); b.setAttribute('aria-selected', on); b.tabIndex = on ? 0 : -1; });
+  try { if (location.hash !== '#' + state.tab) history.replaceState(null, '', '#' + state.tab); } catch (e) {}
   if (!has) { $('period').textContent = 'No data loaded'; $('scopeInfo').textContent = ''; return; }
   const days = state.records.map(r => r.day).filter(d => d != null);
   $('period').textContent = (days.length ? `${dayISO(Math.min(...days))} → ${dayISO(Math.max(...days))} · ` : '') + `${fmt(state.records.length)} write-off records` + (state.published && !state.dirty ? ` · updated ${new Date(state.published.at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}` : '');
@@ -288,6 +291,12 @@ function overview(sc) {
     kp('Overall waste %', `<span class="${statusOf(sc.pct) === 'high' ? 't-high' : statusOf(sc.pct) === 'low' ? 't-low' : ''}">${pct(sc.pct)}</span>`, `${STATUS_LABEL[statusOf(sc.pct)]} · limit ${pct(state.high, 1)}`) +
     kp('High stores', cnt.high, `of ${withSales.length} with sales`) + kp('Unusually low', cnt.low, `below ${pct(state.low, 1)}`) +
     kp('Products wasted', fmt(sc.prods.length), `${sc.cats.length} categories`);
+  const alt = (id, text) => $(id).setAttribute('aria-label', text);
+  alt('chCat', 'Waste percent of net sales by category: ' + sc.cats.map(c => `${c} ${sc.sales ? (sc.catTotals[c] / sc.sales * 100).toFixed(2) : 0}%`).join(', '));
+  alt('chStatus', `Stores by status: ${cnt.high} high, ${cnt.ok} normal, ${cnt.low} unusually low.`);
+  alt('chDay', 'Daily wastage value: ' + [...sc.days.keys()].sort((x, y) => x - y).map(d => `${dayISO(d)} ${fmt(Math.round(sc.days.get(d)))}`).join(', '));
+  alt('chStores', 'Highest waste percent stores: ' + [...withSales].sort((x, y) => y.pct - x.pct).slice(0, 12).map(s => `${s.name} ${pct(s.pct)}`).join(', '));
+  alt('chProd', 'Most wasted products by value: ' + [...sc.prods].sort((x, y) => y.value - x.value).slice(0, 10).map(p => `${p.name} ${fmt(p.value)}`).join(', '));
   const grid = { color: cssv('--line') }, base = { maintainAspectRatio: false, plugins: { legend: { display: false } } };
   state.charts.cat = new Chart($('chCat'), { type: 'bar', data: { labels: sc.cats.map(c => c.split(' ')), datasets: [{ data: sc.cats.map(c => sc.sales ? +(sc.catTotals[c] / sc.sales * 100).toFixed(3) : 0), backgroundColor: [PAL[0], PAL[1], PAL[2], PAL[3]], borderRadius: 8, borderSkipped: false, maxBarThickness: 44 }] },
     options: { ...base, plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => `${c.parsed.y}% of net sales · ${fmt(sc.catTotals[sc.cats[c.dataIndex]])}` } } },
@@ -381,7 +390,21 @@ function managers() {
 }
 
 // ---------- modals ----------
-function openModal(html) { $('modalBody').innerHTML = html; $('modal').hidden = false; }
+let modalReturn = null;
+function openModal(html) {
+  const m = $('modal'); clearTimeout(m._t);
+  $('modalBody').innerHTML = html;
+  const h2 = $('modalBody').querySelector('h2'); if (h2) h2.id = 'modalTitle';
+  if (m.hidden) modalReturn = document.activeElement;
+  m.hidden = false; document.documentElement.style.overflow = 'hidden';
+  requestAnimationFrame(() => { m.classList.add('open'); $('modalBox').focus({ preventScroll: true }); });
+}
+function closeModal() {
+  const m = $('modal'); if (m.hidden) return;
+  m.classList.remove('open'); document.documentElement.style.overflow = '';
+  m._t = setTimeout(() => { m.hidden = true; }, reduceMotion ? 0 : 130);
+  if (modalReturn && modalReturn.isConnected) modalReturn.focus({ preventScroll: true }); modalReturn = null;
+}
 function storeModal(s) {
   const cats = Object.keys(s.cat).sort((a, b) => s.cat[b] - s.cat[a]);
   const prods = [...s.prod.values()].sort((a, b) => b.value - a.value).slice(0, 15);
@@ -447,10 +470,31 @@ $('amSelect').onchange = e => { state.am = e.target.value; render(); };
 $('thHigh').onchange = e => { state.high = (+e.target.value || 0) / 100; render(); };
 $('thLow').onchange = e => { state.low = (+e.target.value || 0) / 100; render(); };
 ['storeSearch', 'storeStatus', 'prodSearch', 'prodCat'].forEach(id => $(id).oninput = render);
-$('tabs').onclick = e => { if (e.target.dataset.tab) { state.tab = e.target.dataset.tab; render(); } };
-$('modalClose').onclick = () => $('modal').hidden = true;
-$('modal').onclick = e => { if (e.target === $('modal')) $('modal').hidden = true; };
-document.addEventListener('keydown', e => { if (e.key === 'Escape') $('modal').hidden = true; });
+$('tabs').onclick = e => { const b = e.target.closest('button[data-tab]'); if (b) { state.tab = b.dataset.tab; render(); } };
+$('tabs').onkeydown = e => {
+  const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End']; if (!keys.includes(e.key)) return;
+  const bs = [...document.querySelectorAll('#tabs button')]; let i = bs.findIndex(b => b.dataset.tab === state.tab);
+  i = e.key === 'Home' ? 0 : e.key === 'End' ? bs.length - 1 : (i + (e.key === 'ArrowRight' ? 1 : -1) + bs.length) % bs.length;
+  e.preventDefault(); state.tab = bs[i].dataset.tab; render(); bs[i].focus();
+};
+{ const t0 = location.hash.slice(1); if (['overview', 'stores', 'products', 'extremes', 'managers'].includes(t0)) state.tab = t0; }
+$('modalClose').onclick = closeModal;
+$('modal').onclick = e => { if (e.target === $('modal')) closeModal(); };
+document.addEventListener('keydown', e => {
+  const menu = document.querySelector('details.more');
+  if (e.key === 'Escape') { if (!$('modal').hidden) closeModal(); else if (menu.open) { menu.open = false; menu.querySelector('summary').focus(); } }
+  if (e.key === 'Tab' && !$('modal').hidden) {
+    const f = [...$('modalBox').querySelectorAll('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])')].filter(x => !x.disabled && x.offsetParent !== null);
+    if (!f.length) return;
+    const first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && (document.activeElement === first || document.activeElement === $('modalBox'))) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
+});
+// menu: close on outside click and after an action
+document.addEventListener('click', e => { const d = document.querySelector('details.more'); if (d.open && !d.contains(e.target)) d.open = false; });
+document.querySelector('.menu').addEventListener('click', e => { if (e.target.closest('button')) document.querySelector('details.more').open = false; });
+['fileWaste', 'fileMap'].forEach(id => $(id).addEventListener('change', () => { document.querySelector('details.more').open = false; }));
 
 loadMapping(window.DEFAULT_MAPPING || [], false);
 render();
