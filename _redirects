@@ -1,0 +1,4 @@
+# Send every plain-http visit, and the www address, to the secure main address
+http://halfmwastage.com/*      https://halfmwastage.com/:splat  301!
+http://www.halfmwastage.com/*  https://halfmwastage.com/:splat  301!
+https://www.halfmwastage.com/* https://halfmwastage.com/:splat  301!
