@@ -77,16 +77,20 @@ async function refreshWeeks() {
   const d = await rpc('get_weeks', { p_password: state.viewPass });
   state.weeks = d.weeks; renderWeekSelect();
 }
+async function getWeekData(key) {
+  let w = state.weekCache.get(key);
+  if (!w) {
+    const r = await rpc('get_week', { p_password: state.viewPass, p_week: key });
+    w = await unpackData(r.payload); w.meta = r.meta || {}; w.updated_at = r.updated_at; state.weekCache.set(key, w);
+  }
+  return w;
+}
 async function selectWeek(key) {
   if (key === state.week && state.dirty) return;
   if (state.dirty) { state.dirty = false; $('publishBar').hidden = true; toast('The unsaved upload was discarded.'); }
   setBusy(true);
   try {
-    let w = state.weekCache.get(key);
-    if (!w) {
-      const r = await rpc('get_week', { p_password: state.viewPass, p_week: key });
-      w = await unpackData(r.payload); w.meta = r.meta || {}; w.updated_at = r.updated_at; state.weekCache.set(key, w);
-    }
+    const w = await getWeekData(key);
     state.week = key; applyWeekData(w);
     state.published = { at: w.updated_at, meta: w.meta }; state.files = (w.meta && w.meta.files) || [];
     build(); render();
@@ -240,9 +244,9 @@ async function handleWasteFiles(files) {
 }
 
 // ---------- model ----------
-function build() {
+function buildStoreMap(records, sales) {
   const byCode = new Map(state.mapping.filter(m => m.code).map(m => [m.code.toUpperCase(), m]));
-  const stores = new Map(), storageIdx = new Map();
+  const stores = new Map(), storageIdx = new Map(), unmatched = new Set();
   const mk = (key, code, label) => {
     if (!stores.has(key)) {
       const m = code && byCode.get(code);
@@ -251,28 +255,34 @@ function build() {
     }
     return stores.get(key);
   };
-  for (const s of state.sales) {
+  for (const s of sales) {
     const st = mk(s.code || 'S:' + norm(s.storage), s.code, s.label);
     st.sales += s.sales; storageIdx.set(norm(s.storage), st);
   }
-  state.unmatched = new Set();
-  for (const r of state.records) {
+  for (const r of records) {
     let st = storageIdx.get(norm(r.storage));
     if (!st) {
       const m = r.storage.match(CODE_RE), code = m ? m[1].toUpperCase() : '';
       st = code ? mk(code, code, r.storage) : mk('S:' + norm(r.storage), '', r.storage);
       storageIdx.set(norm(r.storage), st);
     }
-    if (!st.sales) state.unmatched.add(st.key);
+    if (!st.sales) unmatched.add(st.key);
     st.waste += r.value;
     st.cat[r.cat] = (st.cat[r.cat] || 0) + r.value;
     const pk = norm(r.name);
     let p = st.prod.get(pk);
-    if (!p) st.prod.set(pk, p = { key: pk, code: r.code, name: r.name, cat: r.cat, um: r.um, qty: 0, value: 0 });
+    if (!p) st.prod.set(pk, p = { key: pk, code: r.code, name: r.name, cat: r.cat, um: r.um, qty: 0, value: 0, days: new Map() });
     p.qty += r.qty; p.value += r.value;
-    if (r.day != null) st.day.set(r.day, (st.day.get(r.day) || 0) + r.value);
+    if (r.day != null) {
+      st.day.set(r.day, (st.day.get(r.day) || 0) + r.value);
+      const dd = p.days.get(r.day) || { qty: 0, value: 0 }; dd.qty += r.qty; dd.value += r.value; p.days.set(r.day, dd);
+    }
   }
-  state.stores = [...stores.values()];
+  return { stores, unmatched };
+}
+function build() {
+  const r = buildStoreMap(state.records, state.sales);
+  state.stores = [...r.stores.values()]; state.unmatched = r.unmatched;
 }
 const titleCase = s => s.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
 const statusOf = f => f == null ? 'na' : f > state.high ? 'high' : f < state.low ? 'low' : 'ok';
@@ -342,7 +352,8 @@ function render() {
   const unm = state.stores.filter(s => s.waste > 0 && !s.mapped).length;
   $('scopeInfo').textContent = `${sc.st.length} store${sc.st.length === 1 ? '' : 's'} in view` + (state.am ? ` · ${state.am}` : '') +
     (unm && !state.am ? ` · ${unm} store(s) not in mapping (Unassigned)` : '');
-  ({ overview, stores, products, extremes, managers })[state.tab](sc);
+  if (state.tab !== state.prevTab) { if (state.tab === 'storewaste') state.wkError = false; state.prevTab = state.tab; }
+  ({ overview, stores, storewaste, products, extremes, managers })[state.tab](sc);
 }
 
 function overview(sc) {
@@ -394,6 +405,139 @@ function stores(sc) {
   ];
   table($('tblStores'), cols, rows, 'stores', storeModal);
 }
+
+// ---------- waste by store: every stored week side by side, items and days on click ----------
+const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const shortWeek = k => { const w = state.weeks.find(x => x.week_key === k); return fmtDay((w && w.meta && w.meta.from) || k, false); };
+function weekStores(w) { if (!w._stores || w._map !== state.mapping) { w._stores = buildStoreMap(w.records, w.sales).stores; w._map = state.mapping; } return w._stores; }
+async function loadAllWeeks() { await Promise.all(state.weeks.map(w => getWeekData(w.week_key))); }
+const fcWeeks = () => state.weeks.map(w => w.week_key).sort().filter(k => state.weekCache.has(k));
+const hc = (v, max, txt) => v > 0 ? `<span class="hc" style="--h:${Math.min(1, v / (max || 1)).toFixed(2)}">${txt}</span>` : '<span class="dim">–</span>';
+function fcRows() {
+  const wks = fcWeeks(), map = new Map();
+  for (const wk of wks) for (const [key, s] of weekStores(state.weekCache.get(wk))) {
+    if ((state.am && s.am !== state.am) || !(s.waste > 0)) continue;
+    const r = map.get(key) || { key, name: s.name, am: s.am, w: {}, total: 0 };
+    r.w[wk] = (r.w[wk] || 0) + s.waste; r.total += s.waste; map.set(key, r);
+  }
+  const rows = [...map.values()].sort((x, y) => y.total - x.total), n = wks.length;
+  rows.forEach((r, i) => {
+    r.rank = i + 1; r.avg = n ? r.total / n : 0;
+    const last = r.w[wks[n - 1]] || 0, prev = r.w[wks[n - 2]] || 0;
+    r.trend = n >= 2 && prev > 0 ? (last - prev) / prev : null;
+  });
+  return { rows, wks };
+}
+function storewaste() {
+  const need = state.weeks.filter(w => !state.weekCache.has(w.week_key));
+  if (need.length && !state.wkLoading && !state.wkError) {
+    state.wkLoading = true; state.wkError = false;
+    loadAllWeeks().then(() => { state.wkLoading = false; if (state.tab === 'storewaste') render(); })
+      .catch(() => { state.wkLoading = false; state.wkError = true; if (state.tab === 'storewaste') render(); });
+  }
+  const { rows: all, wks } = fcRows(), q = norm($('fcSearch').value), rows = all.filter(r => !q || norm(r.name + ' ' + r.am).includes(q));
+  const total = all.reduce((s, r) => s + r.total, 0), top = all[0];
+  const kp = (l, v, s = '') => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
+  $('fcKpis').innerHTML = kp('Waste value', fmt(total), `${wks.length} week${wks.length === 1 ? '' : 's'} stored`) + kp('Average per week', fmt(wks.length ? total / wks.length : 0), 'all stores in view') +
+    kp('Stores with waste', all.length, state.am || 'all area managers') + kp('Highest store', top ? fmt(top.total) : '–', top ? esc(top.name) : '');
+  $('fcStatus').textContent = state.wkError ? 'Some weeks could not be loaded.' : need.length ? `Loading ${need.length} more week${need.length === 1 ? '' : 's'}…` : wks.length < 2 ? 'Upload more weeks to compare weeks and see trends.' : '';
+  const maxByWeek = Object.fromEntries(wks.map(k => [k, Math.max(0, ...rows.map(r => r.w[k] || 0))])), maxTotal = Math.max(0, ...rows.map(r => r.total));
+  const cols = [
+    { k: 'name', h: 'Store', f: r => `<span class="rk">${r.rank}</span>${esc(r.name)}`, sort: r => r.name },
+    { k: 'am', h: 'Area manager', f: r => esc(r.am) },
+    ...wks.map(k => ({ k: 'w_' + k, h: 'Wk ' + shortWeek(k), f: r => hc(r.w[k] || 0, maxByWeek[k], fmt(r.w[k] || 0)), sort: r => r.w[k] || 0 })),
+    { k: 'total', h: 'Total', f: r => `<b>${hc(r.total, maxTotal, fmt(r.total))}</b>`, def: true },
+    { k: 'avg', h: 'Avg / week', f: r => fmt(r.avg) },
+    { k: 'trend', h: 'Last vs prev', f: r => r.trend == null ? '<span class="dim">–</span>' : `<span class="${r.trend > 0.005 ? 't-high' : r.trend < -0.005 ? 't-ok' : ''}">${r.trend > 0.005 ? '▲' : r.trend < -0.005 ? '▼' : '='} ${Math.abs(r.trend * 100).toFixed(0)}%</span>`, sort: r => r.trend }
+  ];
+  if (!rows.length) { $('tblFc').innerHTML = `<tbody><tr><td class="muted" style="text-align:center;padding:32px">${need.length ? 'Loading weeks…' : 'No waste found for this selection.'}</td></tr></tbody>`; }
+  else table($('tblFc'), cols, rows, 'fc', r => openStoreForecast(r));
+  state.fcExport = { rows, wks };
+}
+function downloadFcTable() {
+  const { rows, wks } = state.fcExport || { rows: [], wks: [] };
+  const aoa = [['Rank', 'Store', 'Area manager', ...wks.map(k => 'Week ' + weekLabel(k, (state.weeks.find(w => w.week_key === k) || {}).meta)), 'Total', 'Average per week', 'Last vs previous week %'],
+    ...rows.map(r => [r.rank, r.name, r.am, ...wks.map(k => Math.round((r.w[k] || 0) * 100) / 100), Math.round(r.total * 100) / 100, Math.round(r.avg * 100) / 100, r.trend == null ? '' : Math.round(r.trend * 1000) / 10])];
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), 'Waste by store'); saveWB(wb, 'Waste_by_store.xlsx');
+}
+
+// store detail: items by week or by day (value or quantity)
+const fc = { key: '', mode: 'week', metric: 'value', dayWeek: '' };
+function openStoreForecast(row) {
+  fc.key = row.key; fc.mode = 'week'; fc.metric = 'value'; const w = fcWeeks(); fc.dayWeek = w[w.length - 1] || '';
+  openModal(fcModalHtml(), { wide: true });
+}
+function fcModel() {
+  const wks = fcWeeks(), items = new Map(), storeW = {}; let info = null;
+  for (const wk of wks) {
+    const s = weekStores(state.weekCache.get(wk)).get(fc.key); if (!s) continue;
+    info = info || s; storeW[wk] = s.waste;
+    for (const [pk, p] of s.prod) {
+      let it = items.get(pk); if (!it) items.set(pk, it = { name: p.name, um: p.um, cat: p.cat, weeks: {}, days: {} });
+      it.weeks[wk] = { v: p.value, q: p.qty };
+      if (wk === fc.dayWeek) for (const [d, x] of p.days) it.days[d] = { v: x.value, q: x.qty };
+    }
+  }
+  const g = x => x ? (fc.metric === 'qty' ? x.q : x.v) : 0;
+  let cols, avgLabel, cell;
+  if (fc.mode === 'day') {
+    const set = new Set(); items.forEach(it => Object.keys(it.days).forEach(d => set.add(+d)));
+    cols = [...set].sort((x, y) => x - y).map(d => { const iso = dayISO(d), dow = DOW[new Date(iso + 'T00:00:00Z').getUTCDay()]; return { id: d, label: `${dow} ${+iso.slice(8)}` }; });
+    avgLabel = 'Avg / day'; cell = (it, c) => g(it.days[c.id]);
+  } else {
+    cols = wks.map(k => ({ id: k, label: 'Wk ' + shortWeek(k) })); avgLabel = 'Avg / week'; cell = (it, c) => g(it.weeks[c.id]);
+  }
+  const nAvg = cols.length || 1;
+  const rows = [...items.values()].map(it => {
+    const vals = cols.map(c => cell(it, c)), total = vals.reduce((s, v) => s + v, 0);
+    const tv = Object.values(it.weeks).reduce((s, x) => s + x.v, 0);
+    return { name: it.name, um: it.um, cat: it.cat, vals, total, avg: total / nAvg, tv };
+  }).filter(r => r.total > 0).sort((x, y) => y.total - x.total);
+  const scopeTotal = fc.mode === 'day' ? (storeW[fc.dayWeek] || 0) : Object.values(storeW).reduce((s, v) => s + v, 0);
+  rows.forEach(r => { r.share = fc.metric === 'value' && scopeTotal ? r.total / scopeTotal : null; });
+  const foot = fc.metric === 'value' ? cols.map((c, i) => rows.reduce((s, r) => s + r.vals[i], 0)) : null;
+  return { wks, cols, rows, foot, info, avgLabel, storeW, scopeTotal };
+}
+function fcModalHtml() {
+  const m = fcModel();
+  if (!m.info) return '<h2>No data</h2><p class="muted">This store has no waste in the stored weeks.</p>';
+  const nf = v => v > 0 ? (fc.metric === 'qty' ? fmt(v, 1) : fmt(v)) : '<span class="dim">–</span>';
+  const max = Math.max(0, ...m.rows.flatMap(r => r.vals));
+  const seg = (name, opts) => `<div class="seg" role="group" aria-label="${name}">${opts.map(([v, l]) => `<button type="button" data-fc="${name}:${v}" aria-pressed="${fc[name === 'view' ? 'mode' : name] === v}">${l}</button>`).join('')}</div>`;
+  const allTotal = Object.values(m.storeW).reduce((s, v) => s + v, 0), nW = Object.keys(m.storeW).length || 1;
+  const wkOpts = m.wks.map(k => `<option value="${k}"${k === fc.dayWeek ? ' selected' : ''}>${esc(weekLabel(k, (state.weeks.find(w => w.week_key === k) || {}).meta))}</option>`).join('');
+  const heads = m.cols.map(c => `<th>${esc(c.label)}</th>`).join('');
+  const body = m.rows.map(r => `<tr><td class="it">${esc(r.name)} <small>${esc(r.um)}</small></td><td class="cat">${esc(r.cat)}</td>${r.vals.map(v => `<td>${v > 0 ? `<span class="hc" style="--h:${Math.min(1, v / (max || 1)).toFixed(2)}">${nf(v)}</span>` : nf(v)}</td>`).join('')}<td class="tot">${nf(r.total)}</td><td>${nf(r.avg)}</td><td>${r.share == null ? '' : (r.share * 100).toFixed(1) + '%'}</td></tr>`).join('');
+  const foot = m.foot ? `<tfoot><tr><td class="it">All items</td><td></td>${m.foot.map(v => `<td>${nf(v)}</td>`).join('')}<td class="tot">${nf(m.foot.reduce((s, v) => s + v, 0))}</td><td>${nf(m.foot.reduce((s, v) => s + v, 0) / (m.cols.length || 1))}</td><td></td></tr></tfoot>` : '';
+  return `<h2>${esc(m.info.name)}</h2><div class="muted">${esc(m.info.am)}${m.info.rom ? ' · ROM ' + esc(m.info.rom) : ''}${m.info.city ? ' · ' + esc(m.info.city) : ''}</div>
+    <p class="fc-sum">Waste value <b>${fmt(allTotal)}</b> over ${nW} week${nW === 1 ? '' : 's'} · average <b>${fmt(allTotal / nW)}</b> per week</p>
+    <div class="fc-controls">${seg('view', [['week', 'By week'], ['day', 'By day']])}${seg('metric', [['value', 'Waste value'], ['qty', 'Quantity']])}
+      ${fc.mode === 'day' ? `<label class="fc-wk">Week <select data-fc-week aria-label="Week for the day view">${wkOpts}</select></label>` : ''}
+      <button type="button" class="btn fc-dl" data-fc="download">↓ Excel</button></div>
+    ${m.rows.length ? `<div class="mx"><table><thead><tr><th>Item</th><th>Category</th>${heads}<th>Total</th><th>${m.avgLabel}</th><th>${fc.metric === 'value' ? 'Share' : ''}</th></tr></thead><tbody>${body}</tbody>${foot}</table></div>` : '<p class="muted">Nothing to show for this selection.</p>'}
+    <p class="muted small">${fc.mode === 'day' ? 'Each column is one day of the chosen week.' : 'Each column is one stored week (oldest to newest).'} Darker cells mean more ${fc.metric === 'qty' ? 'quantity' : 'waste'}.</p>`;
+}
+function refreshFcModal(focusSel) {
+  $('modalBody').innerHTML = fcModalHtml();
+  const h2 = $('modalBody').querySelector('h2'); if (h2) h2.id = 'modalTitle';
+  const el = focusSel && $('modalBody').querySelector(focusSel); if (el) el.focus({ preventScroll: true });
+}
+function downloadFcModal() {
+  const m = fcModel(); if (!m.info) return;
+  const aoa = [['Item', 'Unit', 'Category', ...m.cols.map(c => c.label), 'Total', m.avgLabel, ...(fc.metric === 'value' ? ['Share %'] : [])],
+    ...m.rows.map(r => [r.name, r.um, r.cat, ...r.vals.map(v => Math.round(v * 100) / 100), Math.round(r.total * 100) / 100, Math.round(r.avg * 100) / 100, ...(r.share == null ? [] : [Math.round(r.share * 1000) / 10])])];
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), 'Items');
+  saveWB(wb, `${m.info.code || 'store'}_${fc.mode === 'day' ? 'by_day' : 'by_week'}_${fc.metric}.xlsx`);
+}
+$('modalBody').addEventListener('click', e => {
+  const b = e.target.closest('[data-fc]'); if (!b) return;
+  const [k, v] = b.dataset.fc.split(':');
+  if (k === 'download') return downloadFcModal();
+  if (k === 'view') fc.mode = v; if (k === 'metric') fc.metric = v;
+  refreshFcModal(`[data-fc="${b.dataset.fc}"]`);
+});
+$('modalBody').addEventListener('change', e => { if (e.target.matches('[data-fc-week]')) { fc.dayWeek = e.target.value; refreshFcModal('[data-fc-week]'); } });
+$('fcDownload').onclick = downloadFcTable;
 
 function products(sc) {
   const sel = $('prodCat'), cur = sel.value;
@@ -454,8 +598,9 @@ function managers() {
 
 // ---------- modals ----------
 let modalReturn = null;
-function openModal(html) {
+function openModal(html, opts) {
   const m = $('modal'); clearTimeout(m._t);
+  $('modalBox').classList.toggle('wide', !!(opts && opts.wide));
   $('modalBody').innerHTML = html;
   const h2 = $('modalBody').querySelector('h2'); if (h2) h2.id = 'modalTitle';
   if (m.hidden) modalReturn = document.activeElement;
@@ -562,7 +707,7 @@ $('weekSelect').onchange = e => selectWeek(e.target.value);
 $('btnDeleteWeek').onclick = deleteWeekDialog;
 $('thHigh').onchange = e => { state.high = (+e.target.value || 0) / 100; render(); };
 $('thLow').onchange = e => { state.low = (+e.target.value || 0) / 100; render(); };
-['storeSearch', 'storeStatus', 'prodSearch', 'prodCat'].forEach(id => $(id).oninput = render);
+['storeSearch', 'storeStatus', 'prodSearch', 'prodCat', 'fcSearch'].forEach(id => $(id).oninput = render);
 $('tabs').onclick = e => { const b = e.target.closest('button[data-tab]'); if (b) { state.tab = b.dataset.tab; render(); } };
 $('tabs').onkeydown = e => {
   const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End']; if (!keys.includes(e.key)) return;
@@ -570,7 +715,7 @@ $('tabs').onkeydown = e => {
   i = e.key === 'Home' ? 0 : e.key === 'End' ? bs.length - 1 : (i + (e.key === 'ArrowRight' ? 1 : -1) + bs.length) % bs.length;
   e.preventDefault(); state.tab = bs[i].dataset.tab; render(); bs[i].focus();
 };
-{ const t0 = location.hash.slice(1); if (['overview', 'stores', 'products', 'extremes', 'managers'].includes(t0)) state.tab = t0; }
+{ const t0 = location.hash.slice(1); if (['overview', 'stores', 'storewaste', 'products', 'extremes', 'managers'].includes(t0)) state.tab = t0; }
 $('modalClose').onclick = closeModal;
 $('modal').onclick = e => { if (e.target === $('modal')) closeModal(); };
 document.addEventListener('keydown', e => {

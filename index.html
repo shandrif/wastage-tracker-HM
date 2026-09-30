@@ -73,6 +73,7 @@
 <div class="tabbar wrap"><div class="tabs" id="tabs" role="tablist" aria-label="Dashboard sections">
   <button role="tab" id="tabbtn-overview" data-tab="overview" aria-controls="tab-overview" aria-selected="true" tabindex="0" class="active">Overview</button>
   <button role="tab" id="tabbtn-stores" data-tab="stores" aria-controls="tab-stores" aria-selected="false" tabindex="-1">Stores</button>
+  <button role="tab" id="tabbtn-storewaste" data-tab="storewaste" aria-controls="tab-storewaste" aria-selected="false" tabindex="-1">Waste by store</button>
   <button role="tab" id="tabbtn-products" data-tab="products" aria-controls="tab-products" aria-selected="false" tabindex="-1">Products</button>
   <button role="tab" id="tabbtn-extremes" data-tab="extremes" aria-controls="tab-extremes" aria-selected="false" tabindex="-1">Highest &amp; Lowest</button>
   <button role="tab" id="tabbtn-managers" data-tab="managers" aria-controls="tab-managers" aria-selected="false" tabindex="-1">Area managers</button>
@@ -101,6 +102,14 @@
     <div class="toolbar"><input type="search" id="storeSearch" placeholder="Search store…" aria-label="Search stores">
       <select id="storeStatus" aria-label="Filter by status"><option value="">All statuses</option><option value="high">High</option><option value="ok">Normal</option><option value="low">Unusually low</option></select></div>
     <div class="card tablewrap"><table id="tblStores"></table></div>
+  </section>
+
+  <section id="tab-storewaste" class="tab" role="tabpanel" aria-labelledby="tabbtn-storewaste" hidden>
+    <div class="kpis" id="fcKpis"></div>
+    <div class="toolbar"><input type="search" id="fcSearch" placeholder="Search store or area manager…" aria-label="Search stores">
+      <button type="button" class="btn" id="fcDownload">↓ Download Excel</button><span id="fcStatus" class="muted small" aria-live="polite"></span></div>
+    <p class="muted small fc-hint">Stores ranked by waste value, highest first, with every stored week side by side. Click a store to see which items create the waste, by week or by day.</p>
+    <div class="card tablewrap"><table id="tblFc"></table></div>
   </section>
 
   <section id="tab-products" class="tab" role="tabpanel" aria-labelledby="tabbtn-products" hidden>
